@@ -27,6 +27,9 @@ bld/
 # Claude Code
 .claude/
 
+# MAVLink generator cache (cloned by scripts/regenerate-mavlink.py)
+.mavlink-gen/
+
 # Build artifacts
 *.dll
 *.exe

@@ -1,0 +1,8 @@
+dialect=all
+wire_protocol=2.0
+pymavlink_url=https://github.com/ArduPilot/pymavlink.git
+pymavlink_ref=2e01c3436ea1ae69866227713ccf29d60fe696ab
+pymavlink_date=2026-01-21
+mavlink_url=https://github.com/mavlink/mavlink.git
+mavlink_ref=1ba67b3c9c46f56a644e6f4e8a4c359172ed14bc
+mavlink_date=2026-02-04

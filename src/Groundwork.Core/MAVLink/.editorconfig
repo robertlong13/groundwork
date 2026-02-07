@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Generated code from pymavlink — suppress nullable and obsolete warnings
+
+[*.cs]
+dotnet_analyzer_diagnostic.severity = none
+generated_code = true
