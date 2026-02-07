@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+target-version = "py312"
+line-length = 99
+
+[lint]
+select = ["F", "I"]
+
+[lint.isort]
+force-single-line = true
