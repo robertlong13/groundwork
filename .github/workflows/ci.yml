@@ -20,6 +20,8 @@ jobs:
         with:
           args: check
 
+      - run: ./scripts/check_ascii.py
+
   build:
     strategy:
       matrix:
