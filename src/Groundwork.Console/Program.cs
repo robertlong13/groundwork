@@ -10,7 +10,8 @@
 
 using System.Reactive.Linq;
 using Groundwork.Core.Connections;
-using Groundwork.Core.Protocol;
+using Groundwork.Core.Links;
+using Groundwork.Core.Vehicles;
 using Microsoft.Extensions.Logging;
 
 using var loggerFactory = LoggerFactory.Create(builder =>
@@ -29,6 +30,7 @@ Console.CancelKeyPress += (_, e) =>
 };
 
 const int port = 14550;
+var registry = new VehicleRegistry();
 
 await using var connection = new UdpListenConnection(
     port,
@@ -37,12 +39,9 @@ await using var connection = new UdpListenConnection(
 
 await connection.OpenAsync(cts.Token);
 
-using var parser = new MavLinkParser(
-    connection.BaseStream,
-    loggerFactory.CreateLogger<MavLinkParser>()
-);
+using var vehicleLink = new VehicleLink(connection, registry, loggerFactory);
 
-using var subscription = parser
+using var subscription = vehicleLink
     .Messages.Where(m => m.msgid == (uint)MAVLink.MAVLINK_MSG_ID.HEARTBEAT)
     .Subscribe(m =>
     {
