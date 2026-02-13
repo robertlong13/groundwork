@@ -78,6 +78,14 @@ public sealed class MavLinkParser : IDisposable
                 _logger.LogDebug("End of stream -- byte source completed");
                 break;
             }
+            catch (TimeoutException)
+            {
+                // ReadWithTimeout throws this when Read() returns 0 on a
+                // non-seekable stream (pipe). For pipe-backed connections,
+                // this means the writer completed -- it's real EOF.
+                _logger.LogDebug("End of stream -- byte source completed");
+                break;
+            }
             catch (InvalidOperationException) when (ct.IsCancellationRequested)
             {
                 break;
