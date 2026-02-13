@@ -96,3 +96,6 @@ publish/
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+# Unhide test fixtures
+!data/*
