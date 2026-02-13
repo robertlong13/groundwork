@@ -29,14 +29,21 @@ Console.CancelKeyPress += (_, e) =>
     cts.Cancel();
 };
 
-const int port = 14550;
 var registry = new VehicleRegistry();
 
-await using var connection = new UdpListenConnection(
-    port,
-    loggerFactory.CreateLogger<UdpListenConnection>()
-);
+// Select connection from arguments: tlog path [speed] or UDP listen (default).
+IConnection connection;
+if (args.Length > 0 && args[0].EndsWith(".tlog", StringComparison.OrdinalIgnoreCase))
+{
+    var speed = args.Length > 1 && double.TryParse(args[1], out var s) ? s : 1.0;
+    connection = new TlogConnection(args[0], loggerFactory.CreateLogger<TlogConnection>(), speed);
+}
+else
+{
+    connection = new UdpListenConnection(14550, loggerFactory.CreateLogger<UdpListenConnection>());
+}
 
+await using var _ = connection;
 await connection.OpenAsync(cts.Token);
 
 using var vehicleLink = new VehicleLink(connection, registry, loggerFactory);
@@ -56,7 +63,10 @@ using var subscription = vehicleLink
         );
     });
 
-logger.LogInformation("Waiting for heartbeats on UDP port {Port}... (Ctrl+C to exit)", port);
+if (connection is TlogConnection)
+    logger.LogInformation("Replaying tlog... (Ctrl+C to exit)");
+else
+    logger.LogInformation("Waiting for heartbeats on UDP port 14550... (Ctrl+C to exit)");
 
 try
 {
