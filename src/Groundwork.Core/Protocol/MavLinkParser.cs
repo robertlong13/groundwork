@@ -100,5 +100,7 @@ public sealed class MavLinkParser : IDisposable
                 );
             }
         }
+
+        _messages.OnCompleted();
     }
 }
