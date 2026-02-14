@@ -50,18 +50,21 @@ using var channel = new MavChannel(connection, registry, loggerFactory);
 
 using var subscription = channel
     .Messages.Where(m => m.msgid == (uint)MAVLink.MAVLINK_MSG_ID.HEARTBEAT)
-    .Subscribe(m =>
-    {
-        var hb = m.ToStructure<MAVLink.mavlink_heartbeat_t>();
-        logger.LogInformation(
-            "HEARTBEAT sysid={Sysid} compid={Compid} type={Type} autopilot={Autopilot} mode={BaseMode}",
-            m.sysid,
-            m.compid,
-            (MAVLink.MAV_TYPE)hb.type,
-            (MAVLink.MAV_AUTOPILOT)hb.autopilot,
-            (MAVLink.MAV_MODE_FLAG)hb.base_mode
-        );
-    });
+    .Subscribe(
+        onNext: m =>
+        {
+            var hb = m.ToStructure<MAVLink.mavlink_heartbeat_t>();
+            logger.LogInformation(
+                "HEARTBEAT sysid={Sysid} compid={Compid} type={Type} autopilot={Autopilot} mode={BaseMode}",
+                m.sysid,
+                m.compid,
+                (MAVLink.MAV_TYPE)hb.type,
+                (MAVLink.MAV_AUTOPILOT)hb.autopilot,
+                (MAVLink.MAV_MODE_FLAG)hb.base_mode
+            );
+        },
+        onCompleted: () => cts.Cancel()
+    );
 
 if (connection is TlogConnection)
     logger.LogInformation("Replaying tlog... (Ctrl+C to exit)");
