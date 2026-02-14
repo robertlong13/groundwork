@@ -11,10 +11,11 @@
 namespace Groundwork.Core.Vehicles;
 
 /// <summary>
-/// Per-channel-per-vehicle telemetry and link health. Pure data with
-/// no backreferences; context comes from the owning <see cref="Channels.MavChannel"/>.
+/// Per-channel-per-vehicle telemetry and link health. Driven by
+/// <see cref="Channels.MavChannel"/>, which calls <see cref="Update"/>
+/// for each received message before forwarding to external subscribers.
 /// </summary>
-public class VehicleState
+public sealed class VehicleState
 {
     // -- HEARTBEAT fields --
 
@@ -76,5 +77,26 @@ public class VehicleState
         BatteryVoltage = msg.voltage_battery / 1000f;
         BatteryCurrent = msg.current_battery / 100f;
         BatteryRemaining = msg.battery_remaining;
+    }
+
+    /// <summary>
+    /// Dispatches a raw MAVLink message to the appropriate update method.
+    /// </summary>
+    public void Update(MAVLink.MAVLinkMessage message)
+    {
+        switch ((MAVLink.MAVLINK_MSG_ID)message.msgid)
+        {
+            case MAVLink.MAVLINK_MSG_ID.HEARTBEAT:
+                UpdateFromHeartbeat(message.ToStructure<MAVLink.mavlink_heartbeat_t>());
+                break;
+            case MAVLink.MAVLINK_MSG_ID.GLOBAL_POSITION_INT:
+                UpdateFromGlobalPositionInt(
+                    message.ToStructure<MAVLink.mavlink_global_position_int_t>()
+                );
+                break;
+            case MAVLink.MAVLINK_MSG_ID.SYS_STATUS:
+                UpdateFromSysStatus(message.ToStructure<MAVLink.mavlink_sys_status_t>());
+                break;
+        }
     }
 }

@@ -8,7 +8,7 @@
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 
-using System.Reactive.Linq;
+using System.Reactive.Subjects;
 using Groundwork.Core.Connections;
 using Groundwork.Core.Protocol;
 using Groundwork.Core.Vehicles;
@@ -28,6 +28,9 @@ public sealed class MavChannel : IDisposable
     private readonly ILogger<MavChannel> _logger;
     private readonly MavLinkParser _parser;
     private readonly IDisposable _parserSubscription;
+    private readonly Subject<MAVLink.MAVLinkMessage> _messages = new();
+    private readonly MAVLink.MavlinkParse _generator = new();
+    private readonly CancellationTokenSource _cts = new();
     private readonly Dictionary<byte, VehicleState> _states = new();
     private readonly Dictionary<byte, Vehicle> _vehicles = new();
 
@@ -48,7 +51,8 @@ public sealed class MavChannel : IDisposable
 
         _parserSubscription = _parser.Messages.Subscribe(
             onNext: OnMessageReceived,
-            onError: ex => _logger.LogWarning(ex, "{Name}: parser error", Name)
+            onError: ex => _logger.LogWarning(ex, "{Name}: parser error", Name),
+            onCompleted: () => _messages.OnCompleted()
         );
     }
 
@@ -60,7 +64,7 @@ public sealed class MavChannel : IDisposable
     /// <summary>
     /// Hot observable of all MAVLink messages received on this channel.
     /// </summary>
-    public IObservable<MAVLink.MAVLinkMessage> Messages => _parser.Messages;
+    public IObservable<MAVLink.MAVLinkMessage> Messages => _messages;
 
     /// <summary>
     /// VehicleStates on this channel, keyed by sysid. Single source of truth
@@ -89,15 +93,17 @@ public sealed class MavChannel : IDisposable
     public void Dispose()
     {
         _parserSubscription.Dispose();
+        _messages.Dispose();
         _parser.Dispose();
     }
 
     private void OnMessageReceived(MAVLink.MAVLinkMessage message)
     {
-        // Vehicle discovery: new sysid -> new VehicleState + Vehicle lookup.
-        if (!_states.ContainsKey(message.sysid))
+        // Vehicle discovery: new sysid -> new VehicleState.
+        if (!_states.TryGetValue(message.sysid, out var state))
         {
-            _states[message.sysid] = new VehicleState();
+            state = new VehicleState();
+            _states[message.sysid] = state;
 
             // Mock UID from sysid at M0.
             var uid = Vehicle.MockUidFromSysid(message.sysid);
@@ -113,12 +119,9 @@ public sealed class MavChannel : IDisposable
             );
         }
 
-        // Update VehicleState from HEARTBEAT.
-        if (message.msgid == (uint)MAVLink.MAVLINK_MSG_ID.HEARTBEAT)
-        {
-            var state = _states[message.sysid];
-            var heartbeat = message.ToStructure<MAVLink.mavlink_heartbeat_t>();
-            state.UpdateFromHeartbeat(heartbeat);
-        }
+        // Update state before forwarding to external consumers, so
+        // subscribers always see up-to-date VehicleState.
+        state.Update(message);
+        _messages.OnNext(message);
     }
 }
