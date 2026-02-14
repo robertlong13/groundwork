@@ -8,6 +8,7 @@
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 
+using System.Reactive.Linq;
 using Groundwork.Core.Channels;
 
 namespace Groundwork.Core.Vehicles;
@@ -20,26 +21,35 @@ namespace Groundwork.Core.Vehicles;
 public class Vehicle
 {
     private readonly HashSet<MavChannel> _channels = new();
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
 
-    public Vehicle(ulong uid, byte sysId)
+    public Vehicle(
+        ulong uid,
+        byte sysId,
+        IReadOnlyDictionary<MAVLink.MAV_DATA_STREAM, int>? defaultStreamRates = null
+    )
     {
         Uid = uid;
         SysId = sysId;
+        RateController = new StreamRateController(sysId, defaultStreamRates);
     }
 
     public ulong Uid { get; }
 
     /// <summary>
-    /// MAVLink system ID. Constant for a given vehicle across all links
-    /// (ArduPilot guarantee, PX4 behaves the same).
+    /// MAVLink system ID. Constant for a given vehicle across all links.
     /// </summary>
     public byte SysId { get; }
 
     /// <summary>
-    /// The primary channel for this vehicle. Outbound commands and heartbeats
-    /// go through this channel. At M0 with one channel, this is trivially the
-    /// only channel.
+    /// Manages outbound telemetry rate requests for this vehicle.
+    /// Rates are sent on all channels.
+    /// </summary>
+    public StreamRateController RateController { get; }
+
+    /// <summary>
+    /// The primary channel for this vehicle. Outbound commands and
+    /// heartbeats are routed through this channel.
     /// </summary>
     public MavChannel? PrimaryChannel
     {
@@ -47,7 +57,7 @@ public class Vehicle
         {
             lock (_lock)
             {
-                // M0: return the only channel. M4+: manual/auto selection.
+                // TODO: channel selection strategy (manual/auto).
                 foreach (var ch in _channels)
                     return ch;
                 return null;
@@ -56,14 +66,12 @@ public class Vehicle
     }
 
     /// <summary>
-    /// Canonical vehicle state, delegated through the primary channel.
-    /// Vehicle does not store or cache state.
+    /// Canonical vehicle state, delegated from the primary channel.
     /// </summary>
     public VehicleState? CanonicalState => PrimaryChannel?.GetState(SysId);
 
     /// <summary>
-    /// Channels that can reach this vehicle. Navigational references --
-    /// ownership is in MavChannelRegistry.
+    /// Channels that can reach this vehicle.
     /// </summary>
     public IReadOnlyCollection<MavChannel> Channels
     {
@@ -82,6 +90,9 @@ public class Vehicle
         {
             _channels.Add(channel);
         }
+
+        var vehicleMessages = channel.Messages.Where(m => m.sysid == SysId);
+        RateController.AddChannel(channel.SendAsync, vehicleMessages);
     }
 
     internal void RemoveChannel(MavChannel channel)
@@ -90,11 +101,13 @@ public class Vehicle
         {
             _channels.Remove(channel);
         }
+
+        RateController.RemoveChannel(channel.SendAsync);
     }
 
     /// <summary>
-    /// Temporary M0 mock -- generates a deterministic UID from sysid until
-    /// AUTOPILOT_VERSION request-response is implemented.
+    /// Generates a deterministic UID from sysid. Placeholder until
+    /// AUTOPILOT_VERSION provides the real hardware UID.
     /// </summary>
     public static ulong MockUidFromSysid(byte sysid) => sysid;
 }

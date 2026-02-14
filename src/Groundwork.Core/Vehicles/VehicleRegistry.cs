@@ -19,13 +19,21 @@ namespace Groundwork.Core.Vehicles;
 public class VehicleRegistry
 {
     private readonly ConcurrentDictionary<ulong, Vehicle> _vehicles = new();
+    private readonly IReadOnlyDictionary<MAVLink.MAV_DATA_STREAM, int>? _defaultStreamRates;
+
+    public VehicleRegistry(
+        IReadOnlyDictionary<MAVLink.MAV_DATA_STREAM, int>? defaultStreamRates = null
+    )
+    {
+        _defaultStreamRates = defaultStreamRates;
+    }
 
     /// <summary>
     /// Returns the vehicle for the given UID, creating one if it doesn't exist.
     /// </summary>
     public Vehicle GetOrCreate(ulong uid, byte sysId)
     {
-        return _vehicles.GetOrAdd(uid, _ => new Vehicle(uid, sysId));
+        return _vehicles.GetOrAdd(uid, _ => new Vehicle(uid, sysId, _defaultStreamRates));
     }
 
     public Vehicle? TryGet(ulong uid)

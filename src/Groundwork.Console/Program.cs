@@ -29,7 +29,17 @@ Console.CancelKeyPress += (_, e) =>
     cts.Cancel();
 };
 
-var registry = new VehicleRegistry();
+var registry = new VehicleRegistry(
+    new Dictionary<MAVLink.MAV_DATA_STREAM, int>
+    {
+        [MAVLink.MAV_DATA_STREAM.EXTRA1] = 10,
+        [MAVLink.MAV_DATA_STREAM.POSITION] = 5,
+        [MAVLink.MAV_DATA_STREAM.EXTENDED_STATUS] = 2,
+        [MAVLink.MAV_DATA_STREAM.RC_CHANNELS] = 2,
+        [MAVLink.MAV_DATA_STREAM.EXTRA2] = 2,
+        [MAVLink.MAV_DATA_STREAM.EXTRA3] = 2,
+    }
+);
 
 // Select connection from arguments: tlog path [speed] or UDP listen (default).
 IConnection connection;
@@ -67,9 +77,14 @@ using var subscription = channel
     );
 
 if (connection is TlogConnection)
+{
     logger.LogInformation("Replaying tlog... (Ctrl+C to exit)");
+}
 else
+{
+    channel.StartHeartbeat();
     logger.LogInformation("Waiting for heartbeats on UDP port 14550... (Ctrl+C to exit)");
+}
 
 try
 {
