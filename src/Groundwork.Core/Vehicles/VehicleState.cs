@@ -11,33 +11,11 @@
 namespace Groundwork.Core.Vehicles;
 
 /// <summary>
-/// Per-connection-per-vehicle state. Junction entity in the connection-to-vehicle
-/// many-to-many. Contains both the MAVLink identity (sysid/compid) and the
-/// vehicle truth as seen through one connection.
-///
-/// At M0 this contains only HEARTBEAT-derived fields. Additional telemetry
-/// fields (position, attitude, battery, sensors) and link health metrics
-/// (RSSI, packet loss) are added as handlers are implemented.
+/// Per-channel-per-vehicle telemetry and link health. Pure data with
+/// no backreferences; context comes from the owning <see cref="Channels.MavChannel"/>.
 /// </summary>
 public class VehicleState
 {
-    public VehicleState(byte systemId, byte componentId)
-    {
-        SystemId = systemId;
-        ComponentId = componentId;
-    }
-
-    // -- MAVLink identity --
-
-    public byte SystemId { get; }
-    public byte ComponentId { get; }
-
-    /// <summary>
-    /// The vehicle this state is attached to. Null until identity is
-    /// established (AUTOPILOT_VERSION UID, or mocked at M0).
-    /// </summary>
-    public Vehicle? Vehicle { get; internal set; }
-
     // -- HEARTBEAT fields --
 
     public MAVLink.MAV_TYPE Type { get; set; }

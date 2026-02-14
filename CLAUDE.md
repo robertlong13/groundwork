@@ -39,12 +39,12 @@ doc.
 
 2. **Separation of connection and vehicle** — A connection is a persistent
    transport (serial, UDP, TCP, log file). A vehicle is a logical entity
-   identified by hardware UID (from AUTOPILOT_VERSION), not sysid. Three
+   identified by hardware UID (from AUTOPILOT_VERSION), not sysid. Four
    entities model this: **IConnection** (persistent transport, owns config and
-   reconnection), **VehicleLink** (MAVLink protocol layer -- parser, vehicle
-   discovery, message routing), **VehicleState** (per-connection-per-vehicle
-   junction -- sysid/compid identity, telemetry, link health), **Vehicle**
-   (UID-keyed identity, owns params/missions/config).
+   reconnection), **MavChannel** (MAVLink protocol layer -- parser, vehicle
+   discovery, message routing), **VehicleState** (per-channel-per-vehicle
+   telemetry and link health), **Vehicle** (UID-keyed identity, owns
+   params/missions/config).
 
 3. **UI is a projection of state** — MVVM, strictly. ViewModels observe vehicle
    state, they don't own it. Core must be fully usable without UI.

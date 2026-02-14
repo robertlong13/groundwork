@@ -14,28 +14,24 @@ using Groundwork.Core.Protocol;
 using Groundwork.Core.Vehicles;
 using Microsoft.Extensions.Logging;
 
-namespace Groundwork.Core.Links;
+namespace Groundwork.Core.Channels;
 
 /// <summary>
-/// MAVLink protocol layer over a persistent <see cref="IConnection"/>. Manages
-/// parser lifecycle, vehicle discovery, and message routing. The connection
-/// handles transport-level concerns (reconnection, port config); VehicleLink
-/// handles protocol-level concerns (parsing, sysid discovery, message dispatch).
-///
-/// The <see cref="Messages"/> observable produces all parsed MAVLink messages.
-/// The connection's stream survives reconnection via its internal pipe, so
-/// the parser sees a continuous byte stream with possible gaps.
+/// MAVLink protocol layer over a persistent <see cref="IConnection"/>.
+/// Parses the connection's byte stream into <see cref="Messages"/>,
+/// discovers vehicles, and owns per-vehicle <see cref="States"/>.
 /// </summary>
-public sealed class VehicleLink : IDisposable
+public sealed class MavChannel : IDisposable
 {
     private readonly IConnection _connection;
     private readonly VehicleRegistry _vehicleRegistry;
-    private readonly ILogger<VehicleLink> _logger;
+    private readonly ILogger<MavChannel> _logger;
     private readonly MavLinkParser _parser;
     private readonly IDisposable _parserSubscription;
-    private readonly Dictionary<byte, VehicleState> _vehicleStates = new();
+    private readonly Dictionary<byte, VehicleState> _states = new();
+    private readonly Dictionary<byte, Vehicle> _vehicles = new();
 
-    public VehicleLink(
+    public MavChannel(
         IConnection connection,
         VehicleRegistry vehicleRegistry,
         ILoggerFactory loggerFactory
@@ -43,7 +39,7 @@ public sealed class VehicleLink : IDisposable
     {
         _connection = connection;
         _vehicleRegistry = vehicleRegistry;
-        _logger = loggerFactory.CreateLogger<VehicleLink>();
+        _logger = loggerFactory.CreateLogger<MavChannel>();
 
         _parser = new MavLinkParser(
             connection.BaseStream,
@@ -62,20 +58,33 @@ public sealed class VehicleLink : IDisposable
     public string Name => _connection.Name;
 
     /// <summary>
-    /// Hot observable of all MAVLink messages received on this link.
+    /// Hot observable of all MAVLink messages received on this channel.
     /// </summary>
     public IObservable<MAVLink.MAVLinkMessage> Messages => _parser.Messages;
 
     /// <summary>
-    /// VehicleStates discovered on this link, keyed by sysid.
+    /// VehicleStates on this channel, keyed by sysid. Single source of truth
+    /// for per-channel telemetry.
     /// </summary>
-    public IReadOnlyDictionary<byte, VehicleState> VehicleStates => _vehicleStates;
+    public IReadOnlyDictionary<byte, VehicleState> States => _states;
+
+    /// <summary>
+    /// Vehicles discovered on this channel, keyed by sysid. Navigational
+    /// references -- ownership is in VehicleRegistry.
+    /// </summary>
+    public IReadOnlyDictionary<byte, Vehicle> Vehicles => _vehicles;
 
     /// <summary>
     /// Sends bytes on the underlying connection.
     /// </summary>
     public Task SendAsync(ReadOnlyMemory<byte> data, CancellationToken ct = default) =>
         _connection.SendAsync(data, ct);
+
+    /// <summary>
+    /// Returns the VehicleState for a given sysid, or null if not discovered.
+    /// </summary>
+    public VehicleState? GetState(byte sysId) =>
+        _states.TryGetValue(sysId, out var state) ? state : null;
 
     public void Dispose()
     {
@@ -85,21 +94,21 @@ public sealed class VehicleLink : IDisposable
 
     private void OnMessageReceived(MAVLink.MAVLinkMessage message)
     {
-        // Vehicle discovery: new sysid -> new VehicleState.
-        if (!_vehicleStates.ContainsKey(message.sysid))
+        // Vehicle discovery: new sysid -> new VehicleState + Vehicle lookup.
+        if (!_states.ContainsKey(message.sysid))
         {
-            var state = new VehicleState(message.sysid, message.compid);
-            _vehicleStates[message.sysid] = state;
+            _states[message.sysid] = new VehicleState();
 
             // Mock UID from sysid at M0.
             var uid = Vehicle.MockUidFromSysid(message.sysid);
-            var vehicle = _vehicleRegistry.GetOrAdd(uid, state);
+            var vehicle = _vehicleRegistry.GetOrCreate(uid, message.sysid);
+            _vehicles[message.sysid] = vehicle;
+            vehicle.AddChannel(this);
 
             _logger.LogInformation(
-                "{Name}: discovered vehicle sysid={Sysid} compid={Compid} uid={Uid}",
+                "{Name}: discovered vehicle sysid={Sysid} uid={Uid}",
                 Name,
                 message.sysid,
-                message.compid,
                 uid
             );
         }
@@ -107,7 +116,7 @@ public sealed class VehicleLink : IDisposable
         // Update VehicleState from HEARTBEAT.
         if (message.msgid == (uint)MAVLink.MAVLINK_MSG_ID.HEARTBEAT)
         {
-            var state = _vehicleStates[message.sysid];
+            var state = _states[message.sysid];
             var heartbeat = message.ToStructure<MAVLink.mavlink_heartbeat_t>();
             state.UpdateFromHeartbeat(heartbeat);
         }

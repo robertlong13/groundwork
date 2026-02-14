@@ -9,8 +9,8 @@
 // (at your option) any later version.
 
 using System.Reactive.Linq;
+using Groundwork.Core.Channels;
 using Groundwork.Core.Connections;
-using Groundwork.Core.Links;
 using Groundwork.Core.Vehicles;
 using Microsoft.Extensions.Logging;
 
@@ -46,9 +46,9 @@ else
 await using var _ = connection;
 await connection.OpenAsync(cts.Token);
 
-using var vehicleLink = new VehicleLink(connection, registry, loggerFactory);
+using var channel = new MavChannel(connection, registry, loggerFactory);
 
-using var subscription = vehicleLink
+using var subscription = channel
     .Messages.Where(m => m.msgid == (uint)MAVLink.MAVLINK_MSG_ID.HEARTBEAT)
     .Subscribe(m =>
     {

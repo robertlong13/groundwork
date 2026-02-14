@@ -19,7 +19,7 @@ See [README.md](README.md) for project overview and principles.
 | Logging | Microsoft.Extensions.Logging abstraction. Provider chosen at app level |
 | Configuration | Microsoft.Extensions.Configuration, JSON in AppData |
 | DI | Pure DI (manual composition root). Container deferred until pain is felt (likely M5+) |
-| Vehicle Identity | Vehicle-first model. Four entities: Link, Vehicle (UID from AUTOPILOT_VERSION), LinkSession, VehicleState. UID is the identity anchor, not sysid |
+| Vehicle Identity | Vehicle-first model. Four entities: IConnection, MavChannel, VehicleState, Vehicle (UID from AUTOPILOT_VERSION). UID is the identity anchor, not sysid |
 
 ---
 
