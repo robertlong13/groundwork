@@ -46,11 +46,11 @@ Use MCP to systematically document which commands are supported, dropped, and ex
 
 **Exit Criteria:**
 
-- [ ] Solution builds on Windows and Linux
-- [ ] CI runs tests on both platforms
-- [ ] Can open UDP, serial, and tlog connections and receive MAVLink messages
-- [ ] Can parse HEARTBEAT and print vehicle sysid/compid/type
-- [ ] At least one unit test and one integration test pass
+- [x] Solution builds on Windows and Linux
+- [x] CI runs tests on both platforms
+- [x] Can open UDP and tlog connections and receive MAVLink messages
+- [x] Can parse HEARTBEAT and print vehicle sysid/compid/type
+- [x] At least one unit test and one integration test pass
 
 **Deliverables:**
 

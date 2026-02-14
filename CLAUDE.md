@@ -59,10 +59,16 @@ doc.
    Plugins register implementations, they can't reach into internals. Plugins
    are an app-layer concern (GUI + Commands), not Core's concern.
 
+## Git
+
+- AP/MP scope-tag style: `Scope: message` when there's an obvious scope, plain
+  message for multi-scope commits. No conventional commits.
+
 ## Code Style
 
 - **ASCII only in source files.** No em dashes, curly quotes, or other non-ASCII
   characters in `.cs`, `.py`, `.sh`, `.csproj`, `.xml`, `.yml`, `.yaml`, `.json`,
   `.axaml`, or `.resx` files -- not in strings, comments, or doc comments. Use
   plain hyphens (`-` or `--`), straight quotes, and XML/language escapes for
-  special characters.
+  special characters. Enforced by `scripts/check_ascii.py` (runs in CI and
+  pre-push hook).
