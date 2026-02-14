@@ -66,4 +66,69 @@ public class VehicleStateTests
 
         Assert.False(state.Armed);
     }
+
+    [Fact]
+    public void UpdateFromGlobalPositionInt_SetsPosition()
+    {
+        var state = new VehicleState();
+        var msg = new MAVLink.mavlink_global_position_int_t
+        {
+            lat = -353632620, // -35.3632620 deg
+            lon = 1491652370, // 149.1652370 deg
+            relative_alt = 50000, // 50 m AGL
+            alt = 630000, // 630 m MSL
+            hdg = 18045, // 180.45 deg
+        };
+
+        state.UpdateFromGlobalPositionInt(msg);
+
+        Assert.Equal(-35.363262, state.Latitude, 6);
+        Assert.Equal(149.165237, state.Longitude, 6);
+        Assert.Equal(50f, state.Altitude, 2);
+        Assert.Equal(630f, state.AltitudeMsl, 2);
+        Assert.Equal(180.45f, state.Heading, 2);
+    }
+
+    [Fact]
+    public void UpdateFromGlobalPositionInt_HeadingUnknown()
+    {
+        var state = new VehicleState();
+        var msg = new MAVLink.mavlink_global_position_int_t
+        {
+            hdg = ushort.MaxValue, // 65535 = unknown
+        };
+
+        state.UpdateFromGlobalPositionInt(msg);
+
+        Assert.True(state.Heading >= 360f);
+    }
+
+    [Fact]
+    public void UpdateFromSysStatus_SetsBatteryFields()
+    {
+        var state = new VehicleState();
+        var msg = new MAVLink.mavlink_sys_status_t
+        {
+            voltage_battery = 12600, // 12.6 V
+            current_battery = 1550, // 15.5 A
+            battery_remaining = 75,
+        };
+
+        state.UpdateFromSysStatus(msg);
+
+        Assert.Equal(12.6f, state.BatteryVoltage, 2);
+        Assert.Equal(15.5f, state.BatteryCurrent, 2);
+        Assert.Equal(75, state.BatteryRemaining);
+    }
+
+    [Fact]
+    public void UpdateFromSysStatus_BatteryRemainingNotReported()
+    {
+        var state = new VehicleState();
+        var msg = new MAVLink.mavlink_sys_status_t { battery_remaining = -1 };
+
+        state.UpdateFromSysStatus(msg);
+
+        Assert.Equal(-1, state.BatteryRemaining);
+    }
 }
