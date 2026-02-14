@@ -23,6 +23,10 @@ namespace Groundwork.Core.Channels;
 /// </summary>
 public sealed class MavChannel : IDisposable
 {
+    private const byte GcsSysId = 255;
+
+    private const byte GcsCompId = (byte)MAVLink.MAV_COMPONENT.MAV_COMP_ID_MISSIONPLANNER;
+
     private readonly IConnection _connection;
     private readonly VehicleRegistry _vehicleRegistry;
     private readonly ILogger<MavChannel> _logger;
@@ -33,6 +37,7 @@ public sealed class MavChannel : IDisposable
     private readonly CancellationTokenSource _cts = new();
     private readonly Dictionary<byte, VehicleState> _states = new();
     private readonly Dictionary<byte, Vehicle> _vehicles = new();
+    private Task? _heartbeatTask;
 
     public MavChannel(
         IConnection connection,
@@ -79,10 +84,41 @@ public sealed class MavChannel : IDisposable
     public IReadOnlyDictionary<byte, Vehicle> Vehicles => _vehicles;
 
     /// <summary>
-    /// Sends bytes on the underlying connection.
+    /// Sends raw bytes on the underlying connection.
     /// </summary>
     public Task SendAsync(ReadOnlyMemory<byte> data, CancellationToken ct = default) =>
         _connection.SendAsync(data, ct);
+
+    /// <summary>
+    /// Encodes a MAVLink struct as a v2 packet and sends it on the
+    /// underlying connection, using the GCS sysid/compid.
+    /// </summary>
+    public Task SendAsync(
+        MAVLink.MAVLINK_MSG_ID messageType,
+        object data,
+        CancellationToken ct = default
+    )
+    {
+        var packet = _generator.GenerateMAVLinkPacket20(
+            messageType,
+            data,
+            sysid: GcsSysId,
+            compid: GcsCompId
+        );
+        return _connection.SendAsync(packet, ct);
+    }
+
+    /// <summary>
+    /// Starts sending GCS heartbeats at 1 Hz. Must be called at most once.
+    /// Heartbeats stop when the channel is disposed.
+    /// </summary>
+    public void StartHeartbeat()
+    {
+        if (_heartbeatTask is not null)
+            throw new InvalidOperationException("Heartbeat already started.");
+
+        _heartbeatTask = RunHeartbeatLoopAsync(_cts.Token);
+    }
 
     /// <summary>
     /// Returns the VehicleState for a given sysid, or null if not discovered.
@@ -92,9 +128,53 @@ public sealed class MavChannel : IDisposable
 
     public void Dispose()
     {
+        _cts.Cancel();
+
+        if (_heartbeatTask is not null)
+        {
+            try
+            {
+                _heartbeatTask.GetAwaiter().GetResult();
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected on shutdown.
+            }
+        }
+
         _parserSubscription.Dispose();
         _messages.Dispose();
         _parser.Dispose();
+        _cts.Dispose();
+    }
+
+    private async Task RunHeartbeatLoopAsync(CancellationToken ct)
+    {
+        var heartbeat = new MAVLink.mavlink_heartbeat_t
+        {
+            type = (byte)MAVLink.MAV_TYPE.GCS,
+            autopilot = (byte)MAVLink.MAV_AUTOPILOT.INVALID,
+            mavlink_version = 3,
+        };
+
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+
+        while (await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
+        {
+            try
+            {
+                await SendAsync(MAVLink.MAVLINK_MSG_ID.HEARTBEAT, heartbeat, ct)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "{Name}: heartbeat send failed", Name);
+            }
+        }
     }
 
     private void OnMessageReceived(MAVLink.MAVLinkMessage message)
