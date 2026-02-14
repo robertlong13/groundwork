@@ -5,6 +5,9 @@
     <NoWarn>$(NoWarn);SYSLIB0021</NoWarn>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Groundwork.Core.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <Compile Update="MAVLink\**\*.cs">
       <AutoGen>true</AutoGen>
     </Compile>
