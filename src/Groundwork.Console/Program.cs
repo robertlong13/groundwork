@@ -8,9 +8,8 @@
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 
-using System.Reactive.Linq;
-using Groundwork.Core.Channels;
-using Groundwork.Core.Connections;
+using Groundwork.Console;
+using Groundwork.Console.Commands;
 using Groundwork.Core.Vehicles;
 using Microsoft.Extensions.Logging;
 
@@ -29,6 +28,17 @@ Console.CancelKeyPress += (_, e) =>
     cts.Cancel();
 };
 
+// Parse --link flags (repeatable). Default: udpin:14550.
+var linkDescriptors = new List<string>();
+for (var i = 0; i < args.Length; i++)
+{
+    if (args[i].Equals("--link", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+        linkDescriptors.Add(args[++i]);
+}
+
+if (linkDescriptors.Count == 0)
+    linkDescriptors.Add("udpin:14550");
+
 var registry = new VehicleRegistry(
     new Dictionary<MAVLink.MAV_DATA_STREAM, int>
     {
@@ -41,58 +51,126 @@ var registry = new VehicleRegistry(
     }
 );
 
-// Select connection from arguments: tlog path [speed] or UDP listen (default).
-IConnection connection;
-if (args.Length > 0 && args[0].EndsWith(".tlog", StringComparison.OrdinalIgnoreCase))
+await using var links = new LinkManager(registry, loggerFactory);
+
+foreach (var descriptor in linkDescriptors)
 {
-    var speed = args.Length > 1 && double.TryParse(args[1], out var s) ? s : 1.0;
-    connection = new TlogConnection(args[0], loggerFactory.CreateLogger<TlogConnection>(), speed);
+    try
+    {
+        await links.AddAsync(descriptor, cts.Token);
+    }
+    catch (FormatException ex)
+    {
+        logger.LogError("{Message}", ex.Message);
+        return 1;
+    }
 }
-else
+
+// Cancel the REPL when all channels' message streams have completed (EOF on tlog).
+var activeChannels = links.Count;
+var completionSubs = new List<IDisposable>();
+foreach (var channel in links.Channels)
 {
-    connection = new UdpListenConnection(14550, loggerFactory.CreateLogger<UdpListenConnection>());
-}
-
-await using var _ = connection;
-await connection.OpenAsync(cts.Token);
-
-using var channel = new MavChannel(connection, registry, loggerFactory);
-
-using var subscription = channel
-    .Messages.Where(m => m.msgid == (uint)MAVLink.MAVLINK_MSG_ID.HEARTBEAT)
-    .Subscribe(
-        onNext: m =>
-        {
-            var hb = m.ToStructure<MAVLink.mavlink_heartbeat_t>();
-            logger.LogInformation(
-                "HEARTBEAT sysid={Sysid} compid={Compid} type={Type} autopilot={Autopilot} mode={BaseMode}",
-                m.sysid,
-                m.compid,
-                (MAVLink.MAV_TYPE)hb.type,
-                (MAVLink.MAV_AUTOPILOT)hb.autopilot,
-                (MAVLink.MAV_MODE_FLAG)hb.base_mode
-            );
-        },
-        onCompleted: () => cts.Cancel()
+    completionSubs.Add(
+        channel.Messages.Subscribe(
+            onNext: static _ => { },
+            onCompleted: () =>
+            {
+                if (Interlocked.Decrement(ref activeChannels) <= 0)
+                    cts.Cancel();
+            }
+        )
     );
-
-if (connection is TlogConnection)
-{
-    logger.LogInformation("Replaying tlog... (Ctrl+C to exit)");
-}
-else
-{
-    channel.StartHeartbeat();
-    logger.LogInformation("Waiting for heartbeats on UDP port 14550... (Ctrl+C to exit)");
 }
 
-try
+// -- REPL setup --
+
+var commands = new CommandRegistry();
+var commandCtx = new CommandContext(registry, links, Console.Out, cts.Token);
+
+new ArmModule().Register(commands);
+new ModeModule().Register(commands);
+new FlightModule().Register(commands);
+new RcModule(cts.Token).Register(commands);
+new LinkModule().Register(commands);
+new DiagModule().Register(commands);
+new OverviewModule().Register(commands);
+commands.Register("help", new HelpCommand(commands));
+
+Console.WriteLine("Type 'help' for commands, 'exit' to quit.");
+
+// -- REPL loop --
+
+while (!cts.Token.IsCancellationRequested)
 {
-    await Task.Delay(Timeout.Infinite, cts.Token);
+    Console.Write("> ");
+
+    // Console.ReadLine() blocks and can't be cancelled. Run it on the
+    // thread pool so we can bail when Ctrl+C fires the token.
+    string? line;
+    try
+    {
+        line = await Task.Run(Console.ReadLine).WaitAsync(cts.Token);
+    }
+    catch (OperationCanceledException)
+    {
+        break;
+    }
+
+    if (line is null)
+        break; // EOF
+
+    line = line.Trim();
+    if (line.Length == 0)
+        continue;
+
+    if (
+        line.Equals("exit", StringComparison.OrdinalIgnoreCase)
+        || line.Equals("quit", StringComparison.OrdinalIgnoreCase)
+    )
+    {
+        break;
+    }
+
+    var tokens = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+    var match = commands.Resolve(tokens);
+
+    if (match is null)
+    {
+        var subs = commands.FindSubcommands(tokens);
+        if (subs.Count > 0)
+        {
+            foreach (var kv in subs)
+                Console.WriteLine($"  {kv.Value.Usage, -25} {kv.Value.Description}");
+        }
+        else
+        {
+            Console.WriteLine($"Unknown command: {tokens[0]}. Type 'help' for commands.");
+        }
+
+        continue;
+    }
+
+    try
+    {
+        await match.Value.Command.ExecuteAsync(match.Value.Args, commandCtx);
+    }
+    catch (TimeoutException)
+    {
+        Console.WriteLine("Command timed out");
+    }
+    catch (OperationCanceledException)
+    {
+        break;
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Error: {ex.Message}");
+    }
 }
-catch (OperationCanceledException)
-{
-    // Clean shutdown.
-}
+
+foreach (var sub in completionSubs)
+    sub.Dispose();
 
 logger.LogInformation("Shutting down");
+return 0;

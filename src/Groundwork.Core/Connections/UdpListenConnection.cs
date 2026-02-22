@@ -21,7 +21,7 @@ namespace Groundwork.Core.Connections;
 /// </summary>
 public sealed class UdpListenConnection : IConnection
 {
-    private readonly int _port;
+    private readonly IPEndPoint _bindEndPoint;
     private readonly ILogger<UdpListenConnection> _logger;
     private readonly Pipe _pipe = new();
     private readonly CancellationTokenSource _cts = new();
@@ -31,20 +31,26 @@ public sealed class UdpListenConnection : IConnection
     private Task? _receiveLoop;
 
     public UdpListenConnection(int port, ILogger<UdpListenConnection> logger)
+        : this(IPAddress.Any, port, logger) { }
+
+    public UdpListenConnection(IPAddress bindAddress, int port, ILogger<UdpListenConnection> logger)
     {
-        _port = port;
+        _bindEndPoint = new IPEndPoint(bindAddress, port);
         _logger = logger;
     }
 
-    public string Name => $"UDP:*:{_port}";
+    public string Name =>
+        _bindEndPoint.Address.Equals(IPAddress.Any)
+            ? $"UDP:*:{_bindEndPoint.Port}"
+            : $"UDP:{_bindEndPoint}";
 
     public Stream BaseStream { get; private set; } = null!;
 
     public Task OpenAsync(CancellationToken ct = default)
     {
-        _client = new UdpClient(_port);
+        _client = new UdpClient(_bindEndPoint);
         BaseStream = _pipe.Reader.AsStream();
-        _logger.LogInformation("Listening on UDP port {Port}", _port);
+        _logger.LogInformation("Listening on {Name}", Name);
         _receiveLoop = RunReceiveLoopAsync(_cts.Token);
         return Task.CompletedTask;
     }
