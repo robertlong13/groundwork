@@ -17,7 +17,7 @@ namespace Groundwork.Core.Connections;
 
 /// <summary>
 /// UDP listen (server) connection. Binds to a local port, receives datagrams,
-/// and learns the remote endpoint from the first incoming datagram for replies.
+/// and tracks the most recent remote endpoint for replies.
 /// </summary>
 public sealed class UdpListenConnection : IConnection
 {
@@ -76,7 +76,7 @@ public sealed class UdpListenConnection : IConnection
             throw new InvalidOperationException("Connection is not open.");
 
         if (_remoteEndPoint is null)
-            throw new InvalidOperationException("No remote endpoint -- no data received yet.");
+            return; // No peer yet -- nothing to send.
 
         await _client.SendAsync(data, _remoteEndPoint, ct).ConfigureAwait(false);
     }
