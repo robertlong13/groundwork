@@ -12,6 +12,12 @@ what Mission Planner does well while building on a modern, cross-platform,
 maintainable foundation. Development is console-first: a MAVProxy-like CLI that
 proves the core is solid before any GUI work begins.
 
+## Status
+
+Early development. Currently a console-only application with ~5% of MAVProxy's most basic commands.
+
+See [ROADMAP.md](ROADMAP.md) for milestones and design decisions.
+
 ## Principles
 
 - **Console-first development** — GUI comes after core is solid
@@ -19,11 +25,6 @@ proves the core is solid before any GUI work begins.
 - **Multi-vehicle and multi-link as first-class concepts** — Not bolted on later
 - **Plugin architecture via composition** — Clear extension points, no reaching into internals
 - **ArduPilot-first, interfaces vehicle-agnostic** — Only implement ArduPilot, but don't close doors
-
-## Status
-
-Early development. Not yet functional. See [ROADMAP.md](ROADMAP.md) for
-milestones and design decisions.
 
 ## License
 
