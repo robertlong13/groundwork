@@ -156,6 +156,22 @@ public class Vehicle
         );
 
     /// <summary>
+    /// Enables or disables the hardware safety switch via SET_MODE.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">No channel available.</exception>
+    public Task SetSafetyAsync(bool on, CancellationToken ct = default)
+    {
+        var msg = new MAVLink.mavlink_set_mode_t
+        {
+            target_system = SysId,
+            base_mode = (byte)MAVLink.MAV_MODE_FLAG_DECODE_POSITION.SAFETY,
+            custom_mode = on ? 1u : 0u,
+        };
+
+        return SendAsync(MAVLink.MAVLINK_MSG_ID.SET_MODE, msg, ct);
+    }
+
+    /// <summary>
     /// Sends a COMMAND_LONG to the autopilot via the primary channel and awaits the matching COMMAND_ACK.
     /// </summary>
     /// <param name="command">The MAVLink command to send.</param>
