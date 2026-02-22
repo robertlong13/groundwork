@@ -34,7 +34,7 @@ See [README.md](README.md) for project overview and principles.
 
 ### Command Audit
 
-Use MCP to systematically document which commands are supported, dropped, and extended.
+Tracked by `scripts/parity.py`. See CLAUDE.md for usage.
 
 ---
 
@@ -67,24 +67,12 @@ Use MCP to systematically document which commands are supported, dropped, and ex
 
 **Exit Criteria:**
 
-- [ ] REPL-style console with MAVProxy-inspired commands
-- [ ] Connect to SITL, see telemetry
-- [ ] Arm, takeoff, change mode, land, disarm - all from console
-- [ ] RC override commands work
-- [ ] Vehicle state displayed (mode, armed, position, altitude, battery)
-- [ ] Integration test: scripted arm -> takeoff -> land -> disarm
-
-**MAVProxy Compatibility:**
-
-Goal is MAVProxy-inspired, not 100% match. Muscle memory should mostly transfer, but some commands will be dropped and others extended. These commands should match MAVProxy syntax:
-
-- `arm throttle` / `disarm`
-- `mode <mode_name>`
-- `takeoff <altitude>`
-- `land`
-- `rc <channel> <pwm>`
-
-Other commands may diverge. Full command audit (via MCP or manual review) will document what's supported, dropped, and extended.
+- [x] REPL-style console with MAVProxy-inspired commands
+- [x] Connect to SITL, see telemetry
+- [x] Arm, takeoff, change mode, land, disarm - all from console
+- [x] RC override commands work
+- [x] Vehicle state displayed (mode, armed, position, altitude, battery)
+- [x] Integration test: scripted arm -> takeoff -> land -> disarm
 
 ---
 
@@ -176,9 +164,3 @@ This milestone adds the user-facing playback experience on top.
 - Connection types
 - Console commands
 
----
-
-## Open Questions
-
-- **MAVProxy command audit:** Use MCP (now available) to systematically capture command parity needs
-- **Parameter metadata source:** ArduPilot's param docs directly, or MP's processed version?
