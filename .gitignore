@@ -105,5 +105,8 @@ Thumbs.db
 ehthumbs.db
 Desktop.ini
 
+# SITL binaries, params, and runtime artifacts
+tests/integration/sitl/
+
 # Unhide test fixtures
 !data/*
