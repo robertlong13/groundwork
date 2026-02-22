@@ -16,5 +16,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Groundwork.Core\Groundwork.Core.csproj" />
+    <ProjectReference Include="..\..\src\Groundwork.Console\Groundwork.Console.csproj" />
   </ItemGroup>
 </Project>
