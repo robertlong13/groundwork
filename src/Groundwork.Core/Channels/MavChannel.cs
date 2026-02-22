@@ -62,24 +62,22 @@ public sealed class MavChannel : IDisposable
     }
 
     /// <summary>
-    /// Human-readable name, derived from the connection.
+    /// Gets the human-readable name, derived from the connection.
     /// </summary>
     public string Name => _connection.Name;
 
     /// <summary>
-    /// Hot observable of all MAVLink messages received on this channel.
+    /// Gets the hot observable of all MAVLink messages received on this channel.
     /// </summary>
     public IObservable<MAVLink.MAVLinkMessage> Messages => _messages;
 
     /// <summary>
-    /// VehicleStates on this channel, keyed by sysid. Single source of truth
-    /// for per-channel telemetry.
+    /// Gets the vehicle states on this channel, keyed by sysid.
     /// </summary>
     public IReadOnlyDictionary<byte, VehicleState> States => _states;
 
     /// <summary>
-    /// Vehicles discovered on this channel, keyed by sysid. Navigational
-    /// references -- ownership is in VehicleRegistry.
+    /// Gets the vehicles discovered on this channel, keyed by sysid.
     /// </summary>
     public IReadOnlyDictionary<byte, Vehicle> Vehicles => _vehicles;
 
@@ -185,18 +183,26 @@ public sealed class MavChannel : IDisposable
             state = new VehicleState();
             _states[message.sysid] = state;
 
-            // Mock UID from sysid at M0.
-            var uid = Vehicle.MockUidFromSysid(message.sysid);
-            var vehicle = _vehicleRegistry.GetOrCreate(uid, message.sysid);
-            _vehicles[message.sysid] = vehicle;
-            vehicle.AddChannel(this);
+            // GCS sysids get state tracking but not vehicle registration.
+            if (message.sysid != GcsSysId)
+            {
+                // Mock UID from sysid at M0.
+                var uid = Vehicle.MockUidFromSysid(message.sysid);
+                var vehicle = _vehicleRegistry.GetOrCreate(uid, message.sysid);
+                _vehicles[message.sysid] = vehicle;
+                vehicle.AddChannel(this);
 
-            _logger.LogInformation(
-                "{Name}: discovered vehicle sysid={Sysid} uid={Uid}",
-                Name,
-                message.sysid,
-                uid
-            );
+                _logger.LogInformation(
+                    "{Name}: discovered vehicle sysid={Sysid} uid={Uid}",
+                    Name,
+                    message.sysid,
+                    uid
+                );
+            }
+            else
+            {
+                _logger.LogDebug("{Name}: tracking GCS sysid={Sysid}", Name, message.sysid);
+            }
         }
 
         // Update state before forwarding to external consumers, so
