@@ -8,7 +8,9 @@
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 
+using System.Reactive.Linq;
 using System.Reactive.Subjects;
+using System.Reactive.Threading.Tasks;
 using Groundwork.Core.Connections;
 using Groundwork.Core.Protocol;
 using Groundwork.Core.Vehicles;
@@ -104,6 +106,61 @@ public sealed class MavChannel : IDisposable
             compid: GcsCompId
         );
         return _connection.SendAsync(packet, ct);
+    }
+
+    /// <summary>
+    /// Sends a COMMAND_LONG and awaits the matching COMMAND_ACK.
+    /// </summary>
+    /// <param name="command">The MAVLink command to send.</param>
+    /// <param name="timeout">ACK timeout. Defaults to 5 seconds.</param>
+    /// <returns>The <see cref="MAVLink.MAV_RESULT"/> from the ACK.</returns>
+    /// <exception cref="TimeoutException">No ACK received within the timeout period.</exception>
+    public async Task<MAVLink.MAV_RESULT> SendCommandAsync(
+        byte targetSysId,
+        byte targetCompId,
+        MAVLink.MAV_CMD command,
+        float param1 = 0,
+        float param2 = 0,
+        float param3 = 0,
+        float param4 = 0,
+        float param5 = 0,
+        float param6 = 0,
+        float param7 = 0,
+        TimeSpan? timeout = null,
+        CancellationToken ct = default
+    )
+    {
+        var effectiveTimeout = timeout ?? TimeSpan.FromSeconds(5);
+
+        // Subscribe BEFORE sending to avoid race with fast ACK.
+        var ackTask = Messages
+            .Where(m =>
+                m.msgid == (uint)MAVLink.MAVLINK_MSG_ID.COMMAND_ACK && m.sysid == targetSysId
+            )
+            .Select(m => m.ToStructure<MAVLink.mavlink_command_ack_t>())
+            .Where(ack => ack.command == (ushort)command)
+            .Take(1)
+            .Timeout(effectiveTimeout)
+            .ToTask(ct);
+
+        var cmd = new MAVLink.mavlink_command_long_t
+        {
+            target_system = targetSysId,
+            target_component = targetCompId,
+            command = (ushort)command,
+            param1 = param1,
+            param2 = param2,
+            param3 = param3,
+            param4 = param4,
+            param5 = param5,
+            param6 = param6,
+            param7 = param7,
+        };
+
+        await SendAsync(MAVLink.MAVLINK_MSG_ID.COMMAND_LONG, cmd, ct).ConfigureAwait(false);
+
+        var ack = await ackTask.ConfigureAwait(false);
+        return (MAVLink.MAV_RESULT)ack.result;
     }
 
     /// <summary>
