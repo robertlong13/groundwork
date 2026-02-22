@@ -21,9 +21,11 @@ namespace Groundwork.Core.Protocol;
 public sealed class MavLinkParser : IDisposable
 {
     private readonly ILogger<MavLinkParser> _logger;
+    private readonly MAVLink.MavlinkParse _parser = new();
     private readonly Subject<MAVLink.MAVLinkMessage> _messages = new();
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _parseLoop;
+    private long _totalMessages;
 
     public MavLinkParser(Stream source, ILogger<MavLinkParser> logger)
     {
@@ -37,10 +39,29 @@ public sealed class MavLinkParser : IDisposable
     /// </summary>
     public IObservable<MAVLink.MAVLinkMessage> Messages => _messages;
 
+    /// <summary>
+    /// Gets the number of packets that failed CRC validation.
+    /// </summary>
+    public int BadCrc => _parser.badCRC;
+
+    /// <summary>
+    /// Gets the number of packets with invalid payload length.
+    /// </summary>
+    public int BadLength => _parser.badLength;
+
+    /// <summary>
+    /// Gets the total number of successfully parsed messages.
+    /// </summary>
+    public long TotalMessages => Interlocked.Read(ref _totalMessages);
+
     public void Dispose()
     {
         _cts.Cancel();
 
+        // CAUTION: This synchronously blocks until ReadPacket returns.
+        // ReadPacket does a blocking Stream.Read, so the stream MUST be
+        // closed/completed before calling Dispose -- otherwise this
+        // deadlocks.
         try
         {
             _parseLoop.GetAwaiter().GetResult();
@@ -50,20 +71,17 @@ public sealed class MavLinkParser : IDisposable
             // Expected on shutdown.
         }
 
-        _messages.OnCompleted();
         _cts.Dispose();
         _messages.Dispose();
     }
 
     private async Task RunParseLoopAsync(Stream stream, CancellationToken ct)
     {
-        var parser = new MAVLink.MavlinkParse();
-
         while (!ct.IsCancellationRequested)
         {
             try
             {
-                var message = parser.ReadPacket(stream);
+                var message = _parser.ReadPacket(stream);
 
                 if (message is null)
                     continue;
@@ -71,6 +89,7 @@ public sealed class MavLinkParser : IDisposable
                 if (ct.IsCancellationRequested)
                     break;
 
+                Interlocked.Increment(ref _totalMessages);
                 _messages.OnNext(message);
             }
             catch (EndOfStreamException)
@@ -95,8 +114,8 @@ public sealed class MavLinkParser : IDisposable
                 _logger.LogWarning(
                     ex,
                     "Parse error (bad CRC: {BadCrc}, bad length: {BadLen})",
-                    parser.badCRC,
-                    parser.badLength
+                    _parser.badCRC,
+                    _parser.badLength
                 );
             }
         }
