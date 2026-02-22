@@ -8,6 +8,7 @@
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 
+using System.Collections.Concurrent;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Reactive.Threading.Tasks;
@@ -19,9 +20,8 @@ using Microsoft.Extensions.Logging;
 namespace Groundwork.Core.Channels;
 
 /// <summary>
-/// MAVLink protocol layer over a persistent <see cref="IConnection"/>.
-/// Parses the connection's byte stream into <see cref="Messages"/>,
-/// discovers vehicles, and owns per-vehicle <see cref="States"/>.
+/// Provides the MAVLink protocol layer over a persistent <see cref="IConnection"/>,
+/// parsing the byte stream into messages, discovering vehicles, and owning per-vehicle state.
 /// </summary>
 public sealed class MavChannel : IDisposable
 {
@@ -37,8 +37,9 @@ public sealed class MavChannel : IDisposable
     private readonly Subject<MAVLink.MAVLinkMessage> _messages = new();
     private readonly MAVLink.MavlinkParse _generator = new();
     private readonly CancellationTokenSource _cts = new();
-    private readonly Dictionary<byte, VehicleState> _states = new();
-    private readonly Dictionary<byte, Vehicle> _vehicles = new();
+    private readonly ConcurrentDictionary<byte, VehicleState> _states = new();
+    private readonly ConcurrentDictionary<byte, Vehicle> _vehicles = new();
+    private readonly ConcurrentDictionary<uint, long> _messageCounts = new();
     private Task? _heartbeatTask;
 
     public MavChannel(
@@ -82,6 +83,16 @@ public sealed class MavChannel : IDisposable
     /// Gets the vehicles discovered on this channel, keyed by sysid.
     /// </summary>
     public IReadOnlyDictionary<byte, Vehicle> Vehicles => _vehicles;
+
+    /// <summary>
+    /// Gets the per-message-type receive counts, keyed by msgid.
+    /// </summary>
+    public IReadOnlyDictionary<uint, long> MessageCounts => _messageCounts;
+
+    /// <summary>
+    /// Gets the parser instance with CRC and framing statistics.
+    /// </summary>
+    public MavLinkParser Parser => _parser;
 
     /// <summary>
     /// Sends raw bytes on the underlying connection.
@@ -261,6 +272,8 @@ public sealed class MavChannel : IDisposable
                 _logger.LogDebug("{Name}: tracking GCS sysid={Sysid}", Name, message.sysid);
             }
         }
+
+        _messageCounts.AddOrUpdate(message.msgid, 1, static (_, count) => count + 1);
 
         // Update state before forwarding to external consumers, so
         // subscribers always see up-to-date VehicleState.
