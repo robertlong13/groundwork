@@ -17,11 +17,14 @@ namespace Groundwork.Console.Commands;
 /// </summary>
 public sealed class CommandContext(
     VehicleRegistry vehicleRegistry,
+    LinkManager links,
     TextWriter output,
     CancellationToken shutdownToken
 )
 {
     public VehicleRegistry VehicleRegistry { get; } = vehicleRegistry;
+
+    public LinkManager Links { get; } = links;
 
     /// <summary>
     /// Gets the output destination for command responses.

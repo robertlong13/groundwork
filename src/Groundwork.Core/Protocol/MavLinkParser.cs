@@ -14,8 +14,7 @@ using Microsoft.Extensions.Logging;
 namespace Groundwork.Core.Protocol;
 
 /// <summary>
-/// Reads MAVLink packets from a byte stream using the pymavlink-generated
-/// <see cref="MAVLink.MavlinkParse"/> and exposes parsed messages as
+/// Provides MAVLink packet parsing from a byte stream, exposing parsed messages as
 /// <see cref="IObservable{MAVLinkMessage}"/>.
 /// </summary>
 public sealed class MavLinkParser : IDisposable
@@ -34,8 +33,7 @@ public sealed class MavLinkParser : IDisposable
     }
 
     /// <summary>
-    /// Hot observable of parsed MAVLink messages that completes when the
-    /// byte source completes or the parser is disposed.
+    /// Gets the hot observable of parsed MAVLink messages.
     /// </summary>
     public IObservable<MAVLink.MAVLinkMessage> Messages => _messages;
 
@@ -61,7 +59,10 @@ public sealed class MavLinkParser : IDisposable
         // CAUTION: This synchronously blocks until ReadPacket returns.
         // ReadPacket does a blocking Stream.Read, so the stream MUST be
         // closed/completed before calling Dispose -- otherwise this
-        // deadlocks.
+        // deadlocks. Currently LinkManager ensures connection teardown
+        // (which EOFs the pipe stream) runs before channel dispose.
+        // TODO: upstream a ReadPacketAsync to pymavlink so the CT can
+        // interrupt the read directly, removing this ordering constraint.
         try
         {
             _parseLoop.GetAwaiter().GetResult();

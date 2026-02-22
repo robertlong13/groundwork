@@ -11,7 +11,11 @@
 namespace Groundwork.Core.Channels;
 
 /// <summary>
-/// Registry of all active <see cref="MavChannel"/>s.
+/// TODO: Registry of all active <see cref="MavChannel"/>s. Currently
+/// unused -- placeholder for multi-connection. Console's LinkManager
+/// fills this role for now. This becomes the Core-level single source
+/// of truth when routing, failover, and GUI all need a global channel
+/// view.
 /// </summary>
 public class MavChannelRegistry
 {
