@@ -14,9 +14,8 @@ using Groundwork.Core.Channels;
 namespace Groundwork.Core.Vehicles;
 
 /// <summary>
-/// A vehicle identified by hardware UID. Holds references to the
-/// <see cref="MavChannel"/>s that can reach it. State lives on the
-/// channels; <see cref="CanonicalState"/> delegates to the primary one.
+/// Represents a vehicle identified by hardware UID, holding references to the
+/// <see cref="MavChannel"/>s that can reach it.
 /// </summary>
 public class Vehicle
 {
@@ -37,19 +36,17 @@ public class Vehicle
     public ulong Uid { get; }
 
     /// <summary>
-    /// MAVLink system ID. Constant for a given vehicle across all links.
+    /// Gets the MAVLink system ID, constant for a given vehicle across all links.
     /// </summary>
     public byte SysId { get; }
 
     /// <summary>
-    /// Manages outbound telemetry rate requests for this vehicle.
-    /// Rates are sent on all channels.
+    /// Gets the controller for outbound telemetry rate requests on this vehicle.
     /// </summary>
     public StreamRateController RateController { get; }
 
     /// <summary>
-    /// The primary channel for this vehicle. Outbound commands and
-    /// heartbeats are routed through this channel.
+    /// Gets the primary channel for this vehicle, through which outbound commands are routed.
     /// </summary>
     public MavChannel? PrimaryChannel
     {
@@ -66,12 +63,12 @@ public class Vehicle
     }
 
     /// <summary>
-    /// Canonical vehicle state, delegated from the primary channel.
+    /// Gets the canonical vehicle state, delegated from the primary channel.
     /// </summary>
     public VehicleState? CanonicalState => PrimaryChannel?.GetState(SysId);
 
     /// <summary>
-    /// Channels that can reach this vehicle.
+    /// Gets the channels that can reach this vehicle.
     /// </summary>
     public IReadOnlyCollection<MavChannel> Channels
     {
@@ -82,6 +79,136 @@ public class Vehicle
                 return _channels.ToArray();
             }
         }
+    }
+
+    /// <summary>
+    /// Returns the custom_mode number for a mode name.
+    /// </summary>
+    /// <returns>The custom_mode number, or <see langword="null"/> if unrecognized or no heartbeat received.</returns>
+    public uint? NameToMode(string name) =>
+        CanonicalState is { } state ? Modes.ArduPilotModeMap.NameToMode(name, state.Type) : null;
+
+    /// <summary>
+    /// Returns the display name for a custom_mode number.
+    /// </summary>
+    /// <returns>The mode display name, or "Mode(N)" for unrecognized modes.</returns>
+    public string ModeToName(uint customMode) =>
+        CanonicalState is { } state
+            ? Modes.ArduPilotModeMap.ModeToName(customMode, state.Type)
+            : $"Mode({customMode})";
+
+    /// <summary>
+    /// Gets the available mode names and their custom_mode numbers for this vehicle type.
+    /// </summary>
+    public IReadOnlyDictionary<string, uint> AvailableModes =>
+        CanonicalState is { } state
+            ? Modes.ArduPilotModeMap.GetModes(state.Type)
+            : new Dictionary<string, uint>();
+
+    /// <summary>
+    /// Arms the vehicle.
+    /// </summary>
+    /// <param name="force">Bypass pre-arm checks (ArduPilot-specific).</param>
+    /// <returns>The <see cref="MAVLink.MAV_RESULT"/> from the ACK.</returns>
+    /// <exception cref="InvalidOperationException">No channel available.</exception>
+    /// <exception cref="TimeoutException">No ACK within timeout.</exception>
+    public Task<MAVLink.MAV_RESULT> ArmAsync(bool force = false, CancellationToken ct = default) =>
+        SendCommandAsync(
+            MAVLink.MAV_CMD.COMPONENT_ARM_DISARM,
+            param1: 1f,
+            // ArduPilot force-arm constant (not MAVLink spec).
+            param2: force ? 2989f : 0f,
+            ct: ct
+        );
+
+    /// <summary>
+    /// Disarms the vehicle.
+    /// </summary>
+    /// <param name="force">Force disarm (ArduPilot-specific).</param>
+    /// <returns>The <see cref="MAVLink.MAV_RESULT"/> from the ACK.</returns>
+    /// <exception cref="InvalidOperationException">No channel available.</exception>
+    /// <exception cref="TimeoutException">No ACK within timeout.</exception>
+    public Task<MAVLink.MAV_RESULT> DisarmAsync(
+        bool force = false,
+        CancellationToken ct = default
+    ) =>
+        SendCommandAsync(
+            MAVLink.MAV_CMD.COMPONENT_ARM_DISARM,
+            param1: 0f,
+            // ArduPilot force-disarm constant (not MAVLink spec).
+            param2: force ? 21196f : 0f,
+            ct: ct
+        );
+
+    /// <summary>
+    /// Sets the flight mode via COMMAND_LONG DO_SET_MODE.
+    /// </summary>
+    /// <param name="customMode">The autopilot-specific custom_mode number.</param>
+    /// <returns>The <see cref="MAVLink.MAV_RESULT"/> from the ACK.</returns>
+    /// <exception cref="InvalidOperationException">No channel available.</exception>
+    /// <exception cref="TimeoutException">No ACK within timeout.</exception>
+    public Task<MAVLink.MAV_RESULT> SetModeAsync(uint customMode, CancellationToken ct = default) =>
+        SendCommandAsync(
+            MAVLink.MAV_CMD.DO_SET_MODE,
+            param1: (float)MAVLink.MAV_MODE_FLAG.CUSTOM_MODE_ENABLED,
+            param2: customMode,
+            ct: ct
+        );
+
+    /// <summary>
+    /// Sends a COMMAND_LONG to the autopilot via the primary channel and awaits the matching COMMAND_ACK.
+    /// </summary>
+    /// <param name="command">The MAVLink command to send.</param>
+    /// <param name="timeout">ACK timeout. Defaults to 5 seconds.</param>
+    /// <returns>The <see cref="MAVLink.MAV_RESULT"/> from the ACK.</returns>
+    /// <exception cref="InvalidOperationException">No channel available.</exception>
+    /// <exception cref="TimeoutException">No ACK within timeout.</exception>
+    public Task<MAVLink.MAV_RESULT> SendCommandAsync(
+        MAVLink.MAV_CMD command,
+        float param1 = 0,
+        float param2 = 0,
+        float param3 = 0,
+        float param4 = 0,
+        float param5 = 0,
+        float param6 = 0,
+        float param7 = 0,
+        TimeSpan? timeout = null,
+        CancellationToken ct = default
+    )
+    {
+        var channel =
+            PrimaryChannel ?? throw new InvalidOperationException("No channel available.");
+
+        return channel.SendCommandAsync(
+            SysId,
+            (byte)MAVLink.MAV_COMPONENT.MAV_COMP_ID_AUTOPILOT1,
+            command,
+            param1,
+            param2,
+            param3,
+            param4,
+            param5,
+            param6,
+            param7,
+            timeout,
+            ct
+        );
+    }
+
+    /// <summary>
+    /// Sends a typed MAVLink message via the primary channel.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">No channel available.</exception>
+    public Task SendAsync(
+        MAVLink.MAVLINK_MSG_ID messageType,
+        object data,
+        CancellationToken ct = default
+    )
+    {
+        var channel =
+            PrimaryChannel ?? throw new InvalidOperationException("No channel available.");
+
+        return channel.SendAsync(messageType, data, ct);
     }
 
     internal void AddChannel(MavChannel channel)
