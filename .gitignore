@@ -31,6 +31,8 @@ CLAUDE.local.md
 
 # MAVLink generator cache (cloned by scripts/regenerate-mavlink.py)
 .mavlink-gen/
+# Parity checker (shallow MAVProxy clone)
+.parity/
 
 # Build artifacts
 *.dll
