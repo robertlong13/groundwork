@@ -26,6 +26,8 @@ bld/
 
 # Claude Code
 .claude/
+CLAUDE.local.md
+.codemap
 
 # MAVLink generator cache (cloned by scripts/regenerate-mavlink.py)
 .mavlink-gen/
@@ -88,6 +90,10 @@ publish/
 
 # JetBrains Rider
 *.sln.iml
+
+# Python
+__pycache__/
+.venv/
 
 # macOS
 .DS_Store
