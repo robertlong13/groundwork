@@ -42,3 +42,96 @@ jobs:
       - run: dotnet tool restore
 
       - run: dotnet csharpier check .
+
+  integration:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-dotnet@v5
+
+      - uses: astral-sh/setup-uv@v5
+
+      # -- Health marker: track firmware server reachability ----------------
+      - name: Restore health marker
+        id: health
+        uses: actions/cache/restore@v4
+        with:
+          path: .sitl-health
+          key: sitl-health-${{ matrix.os }}-never
+          restore-keys: sitl-health-${{ matrix.os }}-
+
+      # -- Check SITL version from firmware server -------------------------
+      - name: Check SITL version
+        id: sitl-version
+        shell: bash
+        run: |
+          url="https://firmware.ardupilot.org/Tools/MissionPlanner/sitl/PlaneStable/git.txt"
+          if git_txt=$(curl -sf --max-time 10 "$url"); then
+            version=$(echo "$git_txt" | head -1 | awk '{print $2}')
+            echo "version=$version" >> "$GITHUB_OUTPUT"
+            echo "fetch-ok=true" >> "$GITHUB_OUTPUT"
+            # Record successful check
+            mkdir -p .sitl-health
+            date +%s > .sitl-health/last-ok
+          else
+            echo "version=unknown" >> "$GITHUB_OUTPUT"
+            echo "fetch-ok=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Could not reach firmware.ardupilot.org -- using cached SITL"
+            # Check staleness
+            if [ -f .sitl-health/last-ok ]; then
+              last_ok=$(cat .sitl-health/last-ok)
+              now=$(date +%s)
+              age=$(( now - last_ok ))
+              if [ "$age" -gt 604800 ]; then
+                echo "::error::firmware.ardupilot.org unreachable for over 7 days"
+                exit 1
+              fi
+            fi
+          fi
+
+      - name: Save health marker
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .sitl-health
+          key: sitl-health-${{ matrix.os }}-${{ github.run_id }}
+
+      # -- SITL binary cache -----------------------------------------------
+      - name: Restore SITL cache
+        id: sitl-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: tests/integration/sitl
+          key: sitl-${{ matrix.os }}-${{ steps.sitl-version.outputs.version }}
+          restore-keys: sitl-${{ matrix.os }}-
+
+      - name: Fetch SITL
+        if: steps.sitl-cache.outputs.cache-hit != 'true' && steps.sitl-version.outputs.fetch-ok == 'true'
+        run: uv run python scripts/fetch_sitl.py --force
+
+      - name: Save SITL cache
+        if: steps.sitl-cache.outputs.cache-hit != 'true' && steps.sitl-version.outputs.fetch-ok == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: tests/integration/sitl
+          key: sitl-${{ matrix.os }}-${{ steps.sitl-version.outputs.version }}
+
+      - name: Verify SITL available
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            test -f tests/integration/sitl/ArduPlane.exe
+          else
+            test -f tests/integration/sitl/ArduPlane
+          fi
+
+      # -- Build and test --------------------------------------------------
+      - run: dotnet build
+
+      - name: Integration tests
+        run: uv run pytest tests/integration/ -v
