@@ -29,11 +29,26 @@ Console.CancelKeyPress += (_, e) =>
 };
 
 // Parse --link flags (repeatable). Default: udpin:14550.
+// Parse --repl-remote <port> to enable the remote REPL socket (off by default).
 var linkDescriptors = new List<string>();
+int? remotePort = null;
 for (var i = 0; i < args.Length; i++)
 {
     if (args[i].Equals("--link", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
         linkDescriptors.Add(args[++i]);
+    else if (
+        args[i].Equals("--repl-remote", StringComparison.OrdinalIgnoreCase)
+        && i + 1 < args.Length
+    )
+    {
+        if (!int.TryParse(args[++i], out var port))
+        {
+            logger.LogError("--repl-remote requires a port number");
+            return 1;
+        }
+
+        remotePort = port;
+    }
 }
 
 if (linkDescriptors.Count == 0)
@@ -97,6 +112,12 @@ new DiagModule().Register(commands);
 new OverviewModule().Register(commands);
 commands.Register("help", new HelpCommand(commands));
 
+// -- Remote REPL socket (opt-in via --repl-remote <port>) --
+
+ReplServer? remoteServer = remotePort.HasValue
+    ? new ReplServer(remotePort.Value, commands, registry, links, loggerFactory)
+    : null;
+
 Console.WriteLine("Type 'help' for commands, 'exit' to quit.");
 
 // -- REPL loop --
@@ -118,7 +139,20 @@ while (!cts.Token.IsCancellationRequested)
     }
 
     if (line is null)
+    {
+        if (remoteServer is not null)
+        {
+            // stdin gone but remote REPL is active -- wait for Ctrl+C.
+            try
+            {
+                await Task.Delay(Timeout.Infinite, cts.Token);
+            }
+            catch (OperationCanceledException) { }
+            break;
+        }
+
         break; // EOF
+    }
 
     line = line.Trim();
     if (line.Length == 0)
@@ -171,6 +205,9 @@ while (!cts.Token.IsCancellationRequested)
 
 foreach (var sub in completionSubs)
     sub.Dispose();
+
+if (remoteServer is not null)
+    await remoteServer.DisposeAsync();
 
 logger.LogInformation("Shutting down");
 return 0;
