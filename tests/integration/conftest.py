@@ -188,6 +188,27 @@ def vehicle_ready(mav):
     wait_ready_to_arm(mav, timeout=60)
 
 
+@pytest.fixture(scope="session")
+def gw_ready(console, vehicle_ready):
+    """Wait for Groundwork.Console to discover the vehicle.
+
+    SITL readiness (via pymavlink) does not guarantee Groundwork has
+    processed heartbeats on its own link yet. Poll the REPL until
+    ``overview`` reports a vehicle.
+    """
+    client = ReplClient(port=REMOTE_PORT)
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        lines = client.send_multi("overview")
+        text = "\n".join(lines)
+        if "No vehicle connected" not in text:
+            client.close()
+            return
+        time.sleep(0.5)
+    client.close()
+    raise RuntimeError("Groundwork.Console did not discover a vehicle within 30s")
+
+
 @pytest.fixture()
 def repl(console):
     """Per-test remote REPL client."""
