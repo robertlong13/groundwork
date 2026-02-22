@@ -10,16 +10,17 @@ from helpers import wait_altitude
 from helpers import wait_armed
 from helpers import wait_disarmed
 from helpers import wait_mode
+from helpers import wait_ready_to_arm
 
 
-def test_vehicle_discovery(repl, vehicle_ready):
+def test_vehicle_discovery(repl, gw_ready):
     lines = repl.send_multi("overview")
     text = "\n".join(lines)
     assert "No vehicle connected" not in text, "Vehicle not discovered"
     assert "Type:" in text
 
 
-def test_overview_fields(repl, vehicle_ready):
+def test_overview_fields(repl, gw_ready):
     lines = repl.send_multi("overview")
     text = "\n".join(lines)
     for field in ("Type:", "Mode:", "Armed:", "Position:", "Alt:", "Heading:", "Battery:"):
@@ -31,14 +32,14 @@ def test_unknown_command(repl):
     assert "Unknown command" in response
 
 
-def test_mode_change(repl, mav, vehicle_ready):
+def test_mode_change(repl, mav, gw_ready):
     response = repl.send("mode GUIDED")
     assert response == "Mode: GUIDED"
 
     wait_mode(mav, "GUIDED", timeout=5)
 
 
-def test_arm_disarm(repl, mav, vehicle_ready):
+def test_arm_disarm(repl, mav, gw_ready):
     # Ensure GUIDED mode (required for arming without RC).
     repl.send("mode GUIDED")
     wait_mode(mav, "GUIDED", timeout=5)
@@ -52,7 +53,10 @@ def test_arm_disarm(repl, mav, vehicle_ready):
     wait_disarmed(mav, timeout=5)
 
 
-def test_takeoff_land(repl, mav, vehicle_ready):
+def test_takeoff_land(repl, mav, gw_ready):
+    # Previous test may have just disarmed; wait for pre-arm checks to settle.
+    wait_ready_to_arm(mav, timeout=10)
+
     # GUIDED mode for takeoff.
     repl.send("mode GUIDED")
     wait_mode(mav, "GUIDED", timeout=5)
