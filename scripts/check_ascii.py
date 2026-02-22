@@ -1,13 +1,5 @@
 #!/usr/bin/env python3
-# Groundwork
-# Copyright (C) 2026 Bob Long
-#
 # SPDX-License-Identifier: GPL-3.0-or-later
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
 
 """Check source files for non-ASCII characters.
 
@@ -17,7 +9,7 @@ Usage:
 """
 
 import argparse
-import os
+import subprocess
 import sys
 import unicodedata
 from pathlib import Path
@@ -39,20 +31,27 @@ SOURCE_EXTENSIONS = frozenset(
         ".resx",
     }
 )
-EXCLUDE_DIRS = frozenset({".git", ".mavlink-gen", "MAVLink"})
+EXCLUDE_PATHS = frozenset({"MAVLink"})  # tracked but generated
 
 
 def find_source_files(root: Path) -> list[Path]:
-    """Find all source files under root, respecting exclusions."""
-    results = []
-    for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = sorted(d for d in dirnames if d not in EXCLUDE_DIRS)
-        for filename in filenames:
-            path = Path(dirpath) / filename
-            if path.suffix in SOURCE_EXTENSIONS:
-                results.append(path)
-    results.sort()
-    return results
+    """Find all source files under root, respecting .gitignore."""
+    result = subprocess.run(
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    paths = []
+    for entry in result.stdout.split("\0"):
+        if not entry:
+            continue
+        p = Path(entry)
+        if p.suffix in SOURCE_EXTENSIONS and not (set(p.parts) & EXCLUDE_PATHS):
+            paths.append(root / p)
+    paths.sort()
+    return paths
 
 
 def escape_char(char: str) -> str:
