@@ -87,6 +87,12 @@ class ReplClient:
         self._sock.close()
 
 
+def drain(mav):
+    """Drain all buffered messages so subsequent waits see fresh data."""
+    while mav.recv_match(blocking=False) is not None:
+        pass
+
+
 def wait_ready_to_arm(mav, timeout: float = 60):
     """Wait until SYS_STATUS PREARM_CHECK bit is healthy.
 
