@@ -14,6 +14,7 @@ import time
 
 import pytest
 from helpers import ReplClient
+from helpers import drain
 from helpers import wait_heartbeat
 from helpers import wait_ready_to_arm
 from pymavlink import mavutil
@@ -207,6 +208,18 @@ def gw_ready(console, vehicle_ready):
         time.sleep(0.5)
     client.close()
     raise RuntimeError("Groundwork.Console did not discover a vehicle within 30s")
+
+
+@pytest.fixture(autouse=True)
+def _drain_mav(request):
+    """Drain buffered pymavlink messages before each test.
+
+    Prevents large stale backlogs from previous tests from causing false
+    timeouts in wait_* helpers. Only runs for tests that use the mav fixture.
+    """
+    if "mav" in request.fixturenames:
+        mav = request.getfixturevalue("mav")
+        drain(mav)
 
 
 @pytest.fixture()
