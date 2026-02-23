@@ -39,6 +39,18 @@ public sealed class VehicleState
     public float BatteryCurrent { get; set; }
     public sbyte BatteryRemaining { get; set; }
 
+    // -- AUTOPILOT_VERSION fields --
+
+    /// <summary>
+    /// Gets the protocol capabilities bitmap from AUTOPILOT_VERSION.
+    /// </summary>
+    public MAVLink.MAV_PROTOCOL_CAPABILITY Capabilities { get; set; }
+
+    /// <summary>
+    /// Gets the firmware version number from AUTOPILOT_VERSION.
+    /// </summary>
+    public uint FirmwareVersion { get; set; }
+
     /// <summary>
     /// Updates state from a HEARTBEAT message. Casts from the pymavlink
     /// byte fields to proper enum types are localized here.
@@ -80,6 +92,15 @@ public sealed class VehicleState
     }
 
     /// <summary>
+    /// Updates capabilities and firmware version from an AUTOPILOT_VERSION message.
+    /// </summary>
+    public void UpdateFromAutopilotVersion(MAVLink.mavlink_autopilot_version_t msg)
+    {
+        Capabilities = (MAVLink.MAV_PROTOCOL_CAPABILITY)msg.capabilities;
+        FirmwareVersion = msg.flight_sw_version;
+    }
+
+    /// <summary>
     /// Dispatches a raw MAVLink message to the appropriate update method.
     /// </summary>
     public void Update(MAVLink.MAVLinkMessage message)
@@ -96,6 +117,11 @@ public sealed class VehicleState
                 break;
             case MAVLink.MAVLINK_MSG_ID.SYS_STATUS:
                 UpdateFromSysStatus(message.ToStructure<MAVLink.mavlink_sys_status_t>());
+                break;
+            case MAVLink.MAVLINK_MSG_ID.AUTOPILOT_VERSION:
+                UpdateFromAutopilotVersion(
+                    message.ToStructure<MAVLink.mavlink_autopilot_version_t>()
+                );
                 break;
         }
     }

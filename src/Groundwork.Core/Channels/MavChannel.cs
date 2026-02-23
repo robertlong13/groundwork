@@ -29,6 +29,8 @@ public sealed class MavChannel : IDisposable
 
     private const byte GcsCompId = (byte)MAVLink.MAV_COMPONENT.MAV_COMP_ID_MISSIONPLANNER;
 
+    private static readonly TimeSpan NegotiationRetryInterval = TimeSpan.FromSeconds(2);
+
     private readonly IConnection _connection;
     private readonly VehicleRegistry _vehicleRegistry;
     private readonly ILogger<MavChannel> _logger;
@@ -40,6 +42,7 @@ public sealed class MavChannel : IDisposable
     private readonly ConcurrentDictionary<byte, VehicleState> _states = new();
     private readonly ConcurrentDictionary<byte, Vehicle> _vehicles = new();
     private readonly ConcurrentDictionary<uint, long> _messageCounts = new();
+    private readonly ConcurrentDictionary<byte, Task> _negotiations = new();
     private Task? _heartbeatTask;
 
     public MavChannel(
@@ -193,16 +196,18 @@ public sealed class MavChannel : IDisposable
     {
         _cts.Cancel();
 
+        // Wait for background tasks to complete.
+        var tasks = _negotiations.Values.ToList();
         if (_heartbeatTask is not null)
+            tasks.Add(_heartbeatTask);
+
+        try
         {
-            try
-            {
-                _heartbeatTask.GetAwaiter().GetResult();
-            }
-            catch (OperationCanceledException)
-            {
-                // Expected on shutdown.
-            }
+            Task.WhenAll(tasks).GetAwaiter().GetResult();
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected on shutdown.
         }
 
         _parserSubscription.Dispose();
@@ -242,39 +247,111 @@ public sealed class MavChannel : IDisposable
 
     private void OnMessageReceived(MAVLink.MAVLinkMessage message)
     {
-        // Vehicle discovery: new sysid -> new VehicleState.
+        _messageCounts.AddOrUpdate(message.msgid, 1, static (_, count) => count + 1);
+
+        if (message.sysid == GcsSysId)
+        {
+            _messages.OnNext(message);
+            return;
+        }
+
         if (!_states.TryGetValue(message.sysid, out var state))
         {
             state = new VehicleState();
             _states[message.sysid] = state;
 
-            // GCS sysids get state tracking but not vehicle registration.
-            if (message.sysid != GcsSysId)
-            {
-                // Mock UID from sysid at M0.
-                var uid = Vehicle.MockUidFromSysid(message.sysid);
-                var vehicle = _vehicleRegistry.GetOrCreate(uid, message.sysid);
-                _vehicles[message.sysid] = vehicle;
-                vehicle.AddChannel(this);
-
-                _logger.LogInformation(
-                    "{Name}: discovered vehicle sysid={Sysid} uid={Uid}",
-                    Name,
-                    message.sysid,
-                    uid
-                );
-            }
-            else
-            {
-                _logger.LogDebug("{Name}: tracking GCS sysid={Sysid}", Name, message.sysid);
-            }
+            _logger.LogInformation(
+                "{Name}: new sysid={Sysid}, requesting AUTOPILOT_VERSION",
+                Name,
+                message.sysid
+            );
+            _negotiations[message.sysid] = NegotiateVersionAsync(message.sysid);
         }
-
-        _messageCounts.AddOrUpdate(message.msgid, 1, static (_, count) => count + 1);
 
         // Update state before forwarding to external consumers, so
         // subscribers always see up-to-date VehicleState.
         state.Update(message);
+
+        // Vehicle registration: AUTOPILOT_VERSION provides the real
+        // hardware UID. Handled here (synchronous) rather than in the
+        // negotiation task to avoid races with tlog replay where the
+        // response may arrive before the async task subscribes.
+        if (
+            message.msgid == (uint)MAVLink.MAVLINK_MSG_ID.AUTOPILOT_VERSION
+            && !_vehicles.ContainsKey(message.sysid)
+        )
+        {
+            var version = message.ToStructure<MAVLink.mavlink_autopilot_version_t>();
+            var uid = Vehicle.ComputeUid(version.uid, version.uid2, message.sysid);
+
+            if (uid is null)
+            {
+                _logger.LogWarning(
+                    "{Name}: sysid={Sysid} AUTOPILOT_VERSION has no hardware UID",
+                    Name,
+                    message.sysid
+                );
+            }
+            else
+            {
+                var vehicle = _vehicleRegistry.GetOrCreate(uid.Value, message.sysid);
+                _vehicles[message.sysid] = vehicle;
+                vehicle.AddChannel(this);
+
+                _logger.LogInformation(
+                    "{Name}: vehicle registered sysid={Sysid} uid={Uid:X16}",
+                    Name,
+                    message.sysid,
+                    uid.Value
+                );
+            }
+        }
+
         _messages.OnNext(message);
+    }
+
+    /// <summary>
+    /// Sends MAV_CMD_REQUEST_MESSAGE for AUTOPILOT_VERSION until the vehicle
+    /// is registered or the channel is disposed.
+    /// Vehicle registration happens in <see cref="OnMessageReceived"/>
+    /// when the response arrives.
+    /// </summary>
+    private async Task NegotiateVersionAsync(byte sysId)
+    {
+        try
+        {
+            var cmd = new MAVLink.mavlink_command_long_t
+            {
+                target_system = sysId,
+                target_component = (byte)MAVLink.MAV_COMPONENT.MAV_COMP_ID_AUTOPILOT1,
+                command = (ushort)MAVLink.MAV_CMD.REQUEST_MESSAGE,
+                param1 = (float)MAVLink.MAVLINK_MSG_ID.AUTOPILOT_VERSION,
+            };
+
+            while (!_vehicles.ContainsKey(sysId))
+            {
+                await SendAsync(MAVLink.MAVLINK_MSG_ID.COMMAND_LONG, cmd, _cts.Token)
+                    .ConfigureAwait(false);
+
+                await Task.Delay(NegotiationRetryInterval, _cts.Token).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (_cts.IsCancellationRequested)
+        {
+            // Channel disposing.
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "{Name}: version negotiation failed for sysid={Sysid}",
+                Name,
+                sysId
+            );
+        }
+        finally
+        {
+            _negotiations.TryRemove(sysId, out _);
+        }
     }
 }
