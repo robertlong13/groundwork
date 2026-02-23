@@ -45,23 +45,19 @@ public class TlogPipelineTests
 
         using var channel = new MavChannel(connection, registry, loggerFactory);
 
-        // Wait for a vehicle heartbeat (skip GCS heartbeats from Mission Planner).
-        var vehicleHeartbeat = await channel
+        // Wait for AUTOPILOT_VERSION from a vehicle (triggers registration).
+        var versionMsg = await channel
             .Messages.Where(m =>
-            {
-                if (m.msgid != (uint)MAVLink.MAVLINK_MSG_ID.HEARTBEAT)
-                    return false;
-                var hb = m.ToStructure<MAVLink.mavlink_heartbeat_t>();
-                return (MAVLink.MAV_TYPE)hb.type != MAVLink.MAV_TYPE.GCS;
-            })
+                m.msgid == (uint)MAVLink.MAVLINK_MSG_ID.AUTOPILOT_VERSION && m.sysid != 255
+            )
             .Timeout(TimeSpan.FromSeconds(10))
             .FirstAsync();
 
-        // Vehicle should be discovered and registered.
+        // Vehicle should be discovered and registered via uid2 hash.
         Assert.NotEmpty(channel.States);
 
-        var state = channel.States[vehicleHeartbeat.sysid];
-        var vehicle = channel.Vehicles[vehicleHeartbeat.sysid];
+        var state = channel.States[versionMsg.sysid];
+        var vehicle = channel.Vehicles[versionMsg.sysid];
         Assert.Same(vehicle, registry.TryGet(vehicle.Uid));
         Assert.Same(state, vehicle.CanonicalState);
 
