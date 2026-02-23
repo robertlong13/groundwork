@@ -22,16 +22,21 @@ namespace Groundwork.Core.Vehicles;
 public class Vehicle
 {
     private readonly HashSet<MavChannel> _channels = new();
+    private readonly Dictionary<MavChannel, IDisposable> _paramSubs = new();
+    private readonly Dictionary<string, double> _parameters = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ILogger _logger;
     private readonly Lock _lock = new();
 
     public Vehicle(
         ulong uid,
         byte sysId,
+        ILoggerFactory loggerFactory,
         IReadOnlyDictionary<MAVLink.MAV_DATA_STREAM, int>? defaultStreamRates = null
     )
     {
         Uid = uid;
         SysId = sysId;
+        _logger = loggerFactory.CreateLogger<Vehicle>();
         RateController = new StreamRateController(sysId, defaultStreamRates);
     }
 
@@ -98,6 +103,23 @@ public class Vehicle
         CanonicalState is { } state
             ? ArduPilot.ModeMap.ModeToName(customMode, state.Type)
             : $"Mode({customMode})";
+
+    /// <summary>
+    /// Gets the parameter cache, populated by fetch and set operations.
+    /// </summary>
+    public IReadOnlyDictionary<string, double> Parameters
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return new Dictionary<string, double>(
+                    _parameters,
+                    StringComparer.OrdinalIgnoreCase
+                );
+            }
+        }
+    }
 
     /// <summary>
     /// Gets the available mode names and their custom_mode numbers for this vehicle type.
@@ -173,6 +195,56 @@ public class Vehicle
     }
 
     /// <summary>
+    /// Fetches a single parameter by name from the autopilot and updates the cache.
+    /// </summary>
+    /// <returns>The parameter value.</returns>
+    /// <exception cref="Channels.ParameterException">The autopilot reported a PARAM_ERROR.</exception>
+    /// <exception cref="InvalidOperationException">No channel available.</exception>
+    /// <exception cref="TimeoutException">No response after all retry attempts.</exception>
+    public async Task<double> FetchParameterAsync(string name, CancellationToken ct = default)
+    {
+        var channel =
+            PrimaryChannel ?? throw new InvalidOperationException("No channel available.");
+
+        var value = await channel.FetchParameterAsync(SysId, name, ct: ct).ConfigureAwait(false);
+
+        lock (_lock)
+        {
+            _parameters[name.ToUpperInvariant()] = value;
+        }
+
+        return value;
+    }
+
+    /// <summary>
+    /// Sets a parameter by name and updates the cache with the confirmed value.
+    /// </summary>
+    /// <returns>The confirmed parameter value from the autopilot.</returns>
+    /// <exception cref="Channels.ParameterException">The autopilot rejected the value.</exception>
+    /// <exception cref="InvalidOperationException">No channel available.</exception>
+    /// <exception cref="TimeoutException">No response after all retry attempts.</exception>
+    public async Task<double> SetParameterAsync(
+        string name,
+        double value,
+        CancellationToken ct = default
+    )
+    {
+        var channel =
+            PrimaryChannel ?? throw new InvalidOperationException("No channel available.");
+
+        var confirmed = await channel
+            .SetParameterAsync(SysId, name, (float)value, ct: ct)
+            .ConfigureAwait(false);
+
+        lock (_lock)
+        {
+            _parameters[name.ToUpperInvariant()] = confirmed;
+        }
+
+        return confirmed;
+    }
+
+    /// <summary>
     /// Sends a COMMAND_LONG to the autopilot via the primary channel and awaits the matching COMMAND_ACK.
     /// </summary>
     /// <param name="command">The MAVLink command to send.</param>
@@ -230,9 +302,24 @@ public class Vehicle
 
     internal void AddChannel(MavChannel channel)
     {
+        var paramSub = channel
+            .Messages.Where(m =>
+                m.msgid == (uint)MAVLink.MAVLINK_MSG_ID.PARAM_VALUE && m.sysid == SysId
+            )
+            .Select(m => m.ToStructure<MAVLink.mavlink_param_value_t>())
+            .Subscribe(pv =>
+            {
+                var name = MavChannel.DecodeParamId(pv.param_id);
+                lock (_lock)
+                {
+                    _parameters[name] = pv.param_value;
+                }
+            });
+
         lock (_lock)
         {
             _channels.Add(channel);
+            _paramSubs[channel] = paramSub;
         }
 
         var vehicleMessages = channel.Messages.Where(m => m.sysid == SysId);
@@ -241,11 +328,14 @@ public class Vehicle
 
     internal void RemoveChannel(MavChannel channel)
     {
+        IDisposable? paramSub;
         lock (_lock)
         {
             _channels.Remove(channel);
+            _paramSubs.Remove(channel, out paramSub);
         }
 
+        paramSub?.Dispose();
         RateController.RemoveChannel(channel.SendAsync);
     }
 
