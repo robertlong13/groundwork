@@ -12,6 +12,7 @@ using System.Collections.Concurrent;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Reactive.Threading.Tasks;
+using System.Text;
 using Groundwork.Core.Connections;
 using Groundwork.Core.Protocol;
 using Groundwork.Core.Vehicles;
@@ -175,6 +176,146 @@ public sealed class MavChannel : IDisposable
     }
 
     /// <summary>
+    /// Fetches a single parameter by name from the autopilot, retrying up to 3 times.
+    /// </summary>
+    /// <returns>The parameter value from the autopilot.</returns>
+    /// <exception cref="ParameterException">The autopilot reported a PARAM_ERROR (AP 4.7+).</exception>
+    /// <exception cref="TimeoutException">No response after all retry attempts.</exception>
+    public async Task<float> FetchParameterAsync(
+        byte targetSysId,
+        string name,
+        TimeSpan? perAttemptTimeout = null,
+        CancellationToken ct = default
+    )
+    {
+        var timeout = perAttemptTimeout ?? TimeSpan.FromSeconds(1);
+        var upperName = name.ToUpperInvariant();
+
+        // Subscribe once before the retry loop to avoid missing fast responses.
+        var successStream = Messages
+            .Where(m =>
+                m.msgid == (uint)MAVLink.MAVLINK_MSG_ID.PARAM_VALUE && m.sysid == targetSysId
+            )
+            .Select(m => m.ToStructure<MAVLink.mavlink_param_value_t>())
+            .Where(pv => ParamIdEquals(pv.param_id, upperName));
+
+        var errorStream = Messages
+            .Where(m =>
+                m.msgid == (uint)MAVLink.MAVLINK_MSG_ID.PARAM_ERROR && m.sysid == targetSysId
+            )
+            .Select(m => m.ToStructure<MAVLink.mavlink_param_error_t>())
+            .Where(pe => ParamIdEquals(pe.param_id, upperName))
+            .Select<MAVLink.mavlink_param_error_t, MAVLink.mavlink_param_value_t>(pe =>
+                throw new ParameterException(upperName, (MAVLink.MAV_PARAM_ERROR)pe.error)
+            );
+
+        var merged = successStream.Merge(errorStream).Take(1);
+
+        var msg = new MAVLink.mavlink_param_request_read_t
+        {
+            target_system = targetSysId,
+            target_component = (byte)MAVLink.MAV_COMPONENT.MAV_COMP_ID_AUTOPILOT1,
+            param_index = -1,
+            param_id = EncodeParamId(upperName),
+        };
+
+        for (int attempt = 0; attempt < 3; attempt++)
+        {
+            var responseTask = merged.Timeout(timeout).ToTask(ct);
+
+            await SendAsync(MAVLink.MAVLINK_MSG_ID.PARAM_REQUEST_READ, msg, ct)
+                .ConfigureAwait(false);
+
+            try
+            {
+                var pv = await responseTask.ConfigureAwait(false);
+                return pv.param_value;
+            }
+            catch (TimeoutException)
+            {
+                // Retry; ParameterException propagates immediately.
+            }
+        }
+
+        throw new TimeoutException($"No PARAM_VALUE for '{upperName}' after 3 attempts");
+    }
+
+    /// <summary>
+    /// Sets a parameter by name and awaits the confirmed value, retrying up to 3 times.
+    /// </summary>
+    /// <returns>The confirmed parameter value from the autopilot's PARAM_VALUE ACK.</returns>
+    /// <exception cref="ParameterException">The autopilot rejected the value.</exception>
+    /// <exception cref="TimeoutException">No response after all retry attempts.</exception>
+    public async Task<float> SetParameterAsync(
+        byte targetSysId,
+        string name,
+        float value,
+        TimeSpan? perAttemptTimeout = null,
+        CancellationToken ct = default
+    )
+    {
+        var timeout = perAttemptTimeout ?? TimeSpan.FromSeconds(1);
+        var upperName = name.ToUpperInvariant();
+
+        var successStream = Messages
+            .Where(m =>
+                m.msgid == (uint)MAVLink.MAVLINK_MSG_ID.PARAM_VALUE && m.sysid == targetSysId
+            )
+            .Select(m => m.ToStructure<MAVLink.mavlink_param_value_t>())
+            .Where(pv => ParamIdEquals(pv.param_id, upperName));
+
+        var errorStream = Messages
+            .Where(m =>
+                m.msgid == (uint)MAVLink.MAVLINK_MSG_ID.PARAM_ERROR && m.sysid == targetSysId
+            )
+            .Select(m => m.ToStructure<MAVLink.mavlink_param_error_t>())
+            .Where(pe => ParamIdEquals(pe.param_id, upperName))
+            .Select<MAVLink.mavlink_param_error_t, MAVLink.mavlink_param_value_t>(pe =>
+                throw new ParameterException(upperName, (MAVLink.MAV_PARAM_ERROR)pe.error)
+            );
+
+        var merged = successStream.Merge(errorStream).Take(1);
+
+        var msg = new MAVLink.mavlink_param_set_t
+        {
+            target_system = targetSysId,
+            target_component = (byte)MAVLink.MAV_COMPONENT.MAV_COMP_ID_AUTOPILOT1,
+            param_id = EncodeParamId(upperName),
+            param_value = value,
+            param_type = (byte)MAVLink.MAV_PARAM_TYPE.REAL32,
+        };
+
+        float? lastConfirmed = null;
+
+        for (int attempt = 0; attempt < 3; attempt++)
+        {
+            var responseTask = merged.Timeout(timeout).ToTask(ct);
+
+            await SendAsync(MAVLink.MAVLINK_MSG_ID.PARAM_SET, msg, ct).ConfigureAwait(false);
+
+            try
+            {
+                var pv = await responseTask.ConfigureAwait(false);
+
+                if (Math.Abs(pv.param_value - value) <= 0.00001f)
+                    return pv.param_value;
+
+                // Autopilot confirmed a different value (clamped or rejected).
+                lastConfirmed = pv.param_value;
+            }
+            catch (TimeoutException)
+            {
+                // Retry; ParameterException propagates immediately.
+            }
+        }
+
+        if (lastConfirmed.HasValue)
+            throw new ParameterException(upperName, value, lastConfirmed.Value);
+
+        throw new TimeoutException($"No PARAM_VALUE for '{upperName}' after 3 attempts");
+    }
+
+    /// <summary>
     /// Starts sending GCS heartbeats at 1 Hz. Must be called at most once.
     /// Heartbeats stop when the channel is disposed.
     /// </summary>
@@ -308,6 +449,19 @@ public sealed class MavChannel : IDisposable
         }
 
         _messages.OnNext(message);
+    }
+
+    internal static string DecodeParamId(byte[] paramId) =>
+        Encoding.ASCII.GetString(paramId).TrimEnd('\0');
+
+    private static bool ParamIdEquals(byte[] paramId, string name) =>
+        string.Equals(DecodeParamId(paramId), name, StringComparison.OrdinalIgnoreCase);
+
+    private static byte[] EncodeParamId(string name)
+    {
+        var id = new byte[16];
+        Encoding.ASCII.GetBytes(name, 0, Math.Min(name.Length, 16), id, 0);
+        return id;
     }
 
     /// <summary>
