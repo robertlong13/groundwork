@@ -8,7 +8,9 @@
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 
+using System.Buffers.Binary;
 using System.Reactive.Linq;
+using System.Security.Cryptography;
 using Groundwork.Core.Channels;
 
 namespace Groundwork.Core.Vehicles;
@@ -249,8 +251,48 @@ public class Vehicle
     }
 
     /// <summary>
-    /// Generates a deterministic UID from sysid. Placeholder until
-    /// AUTOPILOT_VERSION provides the real hardware UID.
+    /// Computes a deterministic UID from AUTOPILOT_VERSION hardware identifiers.
     /// </summary>
-    public static ulong MockUidFromSysid(byte sysid) => sysid;
+    /// <remarks>
+    /// Prefers uid2 (18-byte hardware serial); falls back to uid (uint64) if
+    /// uid2 is all zeros. Returns <see langword="null"/> when both are zero,
+    /// indicating the autopilot reported no usable hardware identity.
+    /// </remarks>
+    public static ulong? ComputeUid(ulong uid, byte[] uid2, byte sysId)
+    {
+        bool hasUid2 = false;
+        for (int i = 0; i < uid2.Length; i++)
+        {
+            if (uid2[i] != 0)
+            {
+                hasUid2 = true;
+                break;
+            }
+        }
+
+        if (hasUid2)
+        {
+            Span<byte> input = stackalloc byte[uid2.Length + 1];
+            uid2.CopyTo(input);
+            input[uid2.Length] = sysId;
+            return HashToUlong(input);
+        }
+
+        if (uid != 0)
+        {
+            Span<byte> input = stackalloc byte[9];
+            BinaryPrimitives.WriteUInt64LittleEndian(input, uid);
+            input[8] = sysId;
+            return HashToUlong(input);
+        }
+
+        return null;
+    }
+
+    private static ulong HashToUlong(ReadOnlySpan<byte> input)
+    {
+        Span<byte> hash = stackalloc byte[32];
+        SHA256.HashData(input, hash);
+        return BinaryPrimitives.ReadUInt64LittleEndian(hash);
+    }
 }
