@@ -54,7 +54,7 @@ jobs:
 
       - uses: actions/setup-dotnet@v5
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
 
       # -- Health marker: track firmware server reachability ----------------
       - name: Restore health marker
