@@ -115,7 +115,7 @@ foreach (var channel in links.Channels)
 // -- REPL setup --
 
 var commands = new CommandRegistry();
-var commandCtx = new CommandContext(registry, links, Console.Out, cts.Token);
+var commandCtx = new CommandContext(registry, links, loggerFactory, Console.Out, cts.Token);
 
 new ArmModule().Register(commands);
 new ModeModule().Register(commands);
@@ -123,6 +123,7 @@ new FlightModule().Register(commands);
 new ParamModule().Register(commands);
 new RcModule(cts.Token).Register(commands);
 new LinkModule().Register(commands);
+new FtpModule().Register(commands);
 new DiagModule().Register(commands);
 new OverviewModule().Register(commands);
 #if LOSSY_LINK
