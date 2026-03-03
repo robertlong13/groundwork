@@ -9,6 +9,7 @@
 // (at your option) any later version.
 
 using Groundwork.Core.Vehicles;
+using Microsoft.Extensions.Logging;
 
 namespace Groundwork.Console.Commands;
 
@@ -18,6 +19,7 @@ namespace Groundwork.Console.Commands;
 public sealed class CommandContext(
     VehicleRegistry vehicleRegistry,
     LinkManager links,
+    ILoggerFactory loggerFactory,
     TextWriter output,
     CancellationToken shutdownToken
 )
@@ -25,6 +27,8 @@ public sealed class CommandContext(
     public VehicleRegistry VehicleRegistry { get; } = vehicleRegistry;
 
     public LinkManager Links { get; } = links;
+
+    public ILoggerFactory LoggerFactory { get; } = loggerFactory;
 
     /// <summary>
     /// Gets the output destination for command responses.
