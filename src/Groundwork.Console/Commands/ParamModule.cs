@@ -8,6 +8,7 @@
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 
+using System.Diagnostics;
 using System.Globalization;
 using Groundwork.Core.Channels;
 using Groundwork.Core.Vehicles;
@@ -42,9 +43,27 @@ public sealed class ParamModule
         commands.Register(
             "param fetch",
             new DelegateCommand(
-                "Fetch a parameter from the autopilot",
-                "param fetch <name>",
+                "Fetch all parameters, or one by name",
+                "param fetch [name]",
                 (args, ctx) => FetchAsync(args, ctx)
+            )
+        );
+
+        commands.Register(
+            "param fetchlegacy",
+            new DelegateCommand(
+                "Fetch all parameters via PARAM_REQUEST_LIST",
+                "param fetchlegacy",
+                (args, ctx) => FetchAllAsync(v => v.DownloadParametersViaStreamAsync, ctx)
+            )
+        );
+
+        commands.Register(
+            "param ftp",
+            new DelegateCommand(
+                "Fetch all parameters via FTP",
+                "param ftp",
+                (args, ctx) => FetchAllAsync(v => v.DownloadParametersViaFtpAsync, ctx)
             )
         );
     }
@@ -61,7 +80,7 @@ public sealed class ParamModule
         var parameters = vehicle.Parameters;
         if (parameters.Count == 0)
         {
-            ctx.Output.WriteLine("No parameters cached. Use 'param fetch <name>' first.");
+            ctx.Output.WriteLine("No parameters cached. Use 'param fetch' to download all.");
             return Task.CompletedTask;
         }
 
@@ -72,7 +91,12 @@ public sealed class ParamModule
         {
             if (MatchesGlob(name, pattern))
             {
-                ctx.Output.WriteLine($"  {name, -16} {FormatValue(parameters[name])}");
+                var entry = parameters[name];
+                var line =
+                    entry.DefaultValue.HasValue && entry.DefaultValue.Value != entry.Value
+                        ? $"  {name, -16} {FormatValue(entry.Value), -12} (default {FormatValue(entry.DefaultValue.Value)})"
+                        : $"  {name, -16} {FormatValue(entry.Value)}";
+                ctx.Output.WriteLine(line);
                 matched++;
             }
         }
@@ -145,22 +169,23 @@ public sealed class ParamModule
         }
     }
 
-    private static async Task FetchAsync(string[] args, CommandContext ctx)
+    private static Task FetchAsync(string[] args, CommandContext ctx)
     {
+        // No args = download all (auto-selects FTP or legacy).
         if (args.Length == 0)
-        {
-            ctx.Output.WriteLine("Usage: param fetch <name>");
-            return;
-        }
+            return FetchAllAsync(v => v.DownloadParametersAsync, ctx);
 
+        return FetchOneAsync(args[0], ctx);
+    }
+
+    private static async Task FetchOneAsync(string name, CommandContext ctx)
+    {
         var vehicle = ctx.CurrentVehicle;
         if (vehicle is null)
         {
             ctx.Output.WriteLine("No vehicle connected");
             return;
         }
-
-        var name = args[0];
 
         try
         {
@@ -174,6 +199,61 @@ public sealed class ParamModule
         catch (TimeoutException)
         {
             ctx.Output.WriteLine($"Fetch timed out for '{name.ToUpperInvariant()}'");
+        }
+    }
+
+    private delegate Task<int> DownloadMethod(
+        IProgress<ParamDownloadProgress>? progress,
+        CancellationToken ct
+    );
+
+    private static async Task FetchAllAsync(
+        Func<Vehicle, DownloadMethod> methodSelector,
+        CommandContext ctx
+    )
+    {
+        var vehicle = ctx.CurrentVehicle;
+        if (vehicle is null)
+        {
+            ctx.Output.WriteLine("No vehicle connected");
+            return;
+        }
+
+        var lastReported = 0;
+        // Progress<T> posts callbacks via ThreadPool (no SynchronizationContext
+        // in console apps), causing races on lastReported and out-of-order
+        // output. Use a synchronous IProgress<T> instead.
+        IProgress<ParamDownloadProgress> progress = new SyncProgress<ParamDownloadProgress>(p =>
+        {
+            // FTP reports bytes; legacy reports param count.
+            var threshold = p.ViaFtp ? 2_000 : 100;
+            if (p.Received == p.Total || p.Received - lastReported >= threshold)
+            {
+                if (p.ViaFtp)
+                    ctx.Output.WriteLine(
+                        $"  {p.Received / 1024.0:F1}/{p.Total / 1024.0:F1} KB via FTP"
+                    );
+                else
+                    ctx.Output.WriteLine($"  {p.Received}/{p.Total} via param list");
+                lastReported = p.Received;
+            }
+        });
+
+        try
+        {
+            var download = methodSelector(vehicle);
+            var sw = Stopwatch.StartNew();
+            var count = await download(progress, ctx.ShutdownToken);
+            sw.Stop();
+            ctx.Output.WriteLine($"Downloaded {count} parameters in {sw.Elapsed.TotalSeconds:F1}s");
+        }
+        catch (IOException ex)
+        {
+            ctx.Output.WriteLine($"Download failed: {ex.Message}");
+        }
+        catch (TimeoutException)
+        {
+            ctx.Output.WriteLine("Download timed out");
         }
     }
 
@@ -211,6 +291,14 @@ public sealed class ParamModule
             return false;
 
         return true;
+    }
+
+    /// <summary>
+    /// Provides synchronous <see cref="IProgress{T}"/> callbacks on the calling thread.
+    /// </summary>
+    private sealed class SyncProgress<T>(Action<T> handler) : IProgress<T>
+    {
+        public void Report(T value) => handler(value);
     }
 
     /// <summary>

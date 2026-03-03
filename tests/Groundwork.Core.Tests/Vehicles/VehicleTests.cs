@@ -103,7 +103,7 @@ public class VehicleTests
         await Task.Delay(50);
 
         Assert.True(vehicle.Parameters.ContainsKey("STAT_RUNTIME"));
-        Assert.Equal(12345f, vehicle.Parameters["STAT_RUNTIME"]);
+        Assert.Equal(12345f, vehicle.Parameters["STAT_RUNTIME"].Value);
 
         // Complete writer before channel dispose -- MavLinkParser.Dispose blocks
         // until ReadPacket returns, which needs EOF on the stream.
