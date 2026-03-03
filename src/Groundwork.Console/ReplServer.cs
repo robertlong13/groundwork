@@ -30,6 +30,7 @@ public sealed class ReplServer : IAsyncDisposable
     private readonly CommandRegistry _commands;
     private readonly VehicleRegistry _vehicleRegistry;
     private readonly LinkManager _links;
+    private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<ReplServer> _logger;
     private readonly CancellationTokenSource _cts = new();
     private readonly ConcurrentDictionary<Task, byte> _clientTasks = new();
@@ -46,6 +47,7 @@ public sealed class ReplServer : IAsyncDisposable
         _commands = commands;
         _vehicleRegistry = vehicleRegistry;
         _links = links;
+        _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<ReplServer>();
 
         _listener = new TcpListener(IPAddress.Loopback, port);
@@ -108,7 +110,7 @@ public sealed class ReplServer : IAsyncDisposable
             var reader = new StreamReader(stream);
             var writer = new StreamWriter(stream) { AutoFlush = true };
 
-            var ctx = new CommandContext(_vehicleRegistry, _links, writer, ct);
+            var ctx = new CommandContext(_vehicleRegistry, _links, _loggerFactory, writer, ct);
 
             _logger.LogDebug(
                 "Remote client connected from {Endpoint}",
