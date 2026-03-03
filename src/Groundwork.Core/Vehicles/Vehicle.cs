@@ -12,6 +12,7 @@ using System.Buffers.Binary;
 using System.Reactive.Linq;
 using System.Security.Cryptography;
 using Groundwork.Core.Channels;
+using Microsoft.Extensions.Logging;
 
 namespace Groundwork.Core.Vehicles;
 
@@ -23,7 +24,9 @@ public class Vehicle
 {
     private readonly HashSet<MavChannel> _channels = new();
     private readonly Dictionary<MavChannel, IDisposable> _paramSubs = new();
-    private readonly Dictionary<string, double> _parameters = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ParamEntry> _parameters = new(
+        StringComparer.OrdinalIgnoreCase
+    );
     private readonly ILogger _logger;
     private readonly Lock _lock = new();
 
@@ -105,21 +108,26 @@ public class Vehicle
             : $"Mode({customMode})";
 
     /// <summary>
-    /// Gets the parameter cache, populated by fetch and set operations.
+    /// Gets the parameter cache, populated by fetch, set, and download operations.
     /// </summary>
-    public IReadOnlyDictionary<string, double> Parameters
+    public IReadOnlyDictionary<string, ParamEntry> Parameters
     {
         get
         {
             lock (_lock)
             {
-                return new Dictionary<string, double>(
+                return new Dictionary<string, ParamEntry>(
                     _parameters,
                     StringComparer.OrdinalIgnoreCase
                 );
             }
         }
     }
+
+    /// <summary>
+    /// Gets the total parameter count last reported by the vehicle in a PARAM_VALUE message.
+    /// </summary>
+    public int ReportedParameterCount { get; private set; }
 
     /// <summary>
     /// Gets the available mode names and their custom_mode numbers for this vehicle type.
@@ -207,10 +215,12 @@ public class Vehicle
             PrimaryChannel ?? throw new InvalidOperationException("No channel available.");
 
         var value = await channel.FetchParameterAsync(SysId, name, ct: ct).ConfigureAwait(false);
+        var upperName = name.ToUpperInvariant();
 
         lock (_lock)
         {
-            _parameters[name.ToUpperInvariant()] = value;
+            var existing = _parameters.GetValueOrDefault(upperName);
+            _parameters[upperName] = new ParamEntry(value, existing.DefaultValue);
         }
 
         return value;
@@ -235,13 +245,81 @@ public class Vehicle
         var confirmed = await channel
             .SetParameterAsync(SysId, name, (float)value, ct: ct)
             .ConfigureAwait(false);
+        var upperName = name.ToUpperInvariant();
 
         lock (_lock)
         {
-            _parameters[name.ToUpperInvariant()] = confirmed;
+            var existing = _parameters.GetValueOrDefault(upperName);
+            _parameters[upperName] = new ParamEntry(confirmed, existing.DefaultValue);
         }
 
         return confirmed;
+    }
+
+    /// <summary>
+    /// Downloads all parameters, selecting FTP or legacy based on vehicle capabilities.
+    /// </summary>
+    /// <returns>The number of parameters downloaded.</returns>
+    /// <exception cref="InvalidOperationException">No channel available.</exception>
+    public Task<int> DownloadParametersAsync(
+        IProgress<ParamDownloadProgress>? progress = null,
+        CancellationToken ct = default
+    )
+    {
+        var hasFtp =
+            CanonicalState is { } state
+            && state.Capabilities.HasFlag(MAVLink.MAV_PROTOCOL_CAPABILITY.FTP);
+
+        return hasFtp
+            ? DownloadParametersViaFtpAsync(progress, ct)
+            : DownloadParametersViaStreamAsync(progress, ct);
+    }
+
+    /// <summary>
+    /// Downloads all parameters via FTP (param.pck) and populates the cache.
+    /// </summary>
+    /// <returns>The number of parameters downloaded.</returns>
+    /// <exception cref="InvalidOperationException">No channel available.</exception>
+    public async Task<int> DownloadParametersViaFtpAsync(
+        IProgress<ParamDownloadProgress>? progress = null,
+        CancellationToken ct = default
+    )
+    {
+        var channel =
+            PrimaryChannel ?? throw new InvalidOperationException("No channel available.");
+
+        var download = ArduPilot.BulkParameterDownload.DownloadViaFtpAsync;
+        var count = await download(channel, SysId, WriteParam, _logger, progress, ct)
+            .ConfigureAwait(false);
+        ReportedParameterCount = count;
+        return count;
+
+        void WriteParam(string name, ParamEntry entry)
+        {
+            lock (_lock)
+            {
+                _parameters[name] = entry;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Downloads all parameters via PARAM_REQUEST_LIST and populates the cache.
+    /// </summary>
+    /// <returns>The number of parameters downloaded.</returns>
+    /// <exception cref="InvalidOperationException">No channel available.</exception>
+    public async Task<int> DownloadParametersViaStreamAsync(
+        IProgress<ParamDownloadProgress>? progress = null,
+        CancellationToken ct = default
+    )
+    {
+        var channel =
+            PrimaryChannel ?? throw new InvalidOperationException("No channel available.");
+
+        // Vehicle's existing PARAM_VALUE subscription populates the cache.
+        return await ParamListDownload
+            .DownloadAsync(channel, SysId, _logger, progress, ct)
+            .ConfigureAwait(false);
     }
 
     /// <summary>
@@ -312,7 +390,10 @@ public class Vehicle
                 var name = MavChannel.DecodeParamId(pv.param_id);
                 lock (_lock)
                 {
-                    _parameters[name] = pv.param_value;
+                    var existing = _parameters.GetValueOrDefault(name);
+                    _parameters[name] = new ParamEntry(pv.param_value, existing.DefaultValue);
+                    if (pv.param_count != ushort.MaxValue)
+                        ReportedParameterCount = pv.param_count;
                 }
             });
 
