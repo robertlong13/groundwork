@@ -1,0 +1,11 @@
+<Project>
+  <!-- LOSSY_LINK: on by default in Debug, off in Release.
+       Override with -p:LossyLink=false on Debug builds
+       or -p:LossyLink=true on Release builds. -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug' AND '$(LossyLink)' != 'false'">
+    <DefineConstants>$(DefineConstants);LOSSY_LINK</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)' != 'Debug' AND '$(LossyLink)' == 'true'">
+    <DefineConstants>$(DefineConstants);LOSSY_LINK</DefineConstants>
+  </PropertyGroup>
+</Project>
