@@ -13,25 +13,10 @@ using Groundwork.Console.Commands;
 using Groundwork.Core.Vehicles;
 using Microsoft.Extensions.Logging;
 
-using var loggerFactory = LoggerFactory.Create(builder =>
-{
-    builder.AddConsole();
-    builder.SetMinimumLevel(LogLevel.Information);
-});
-
-var logger = loggerFactory.CreateLogger("Groundwork");
-var cts = new CancellationTokenSource();
-
-Console.CancelKeyPress += (_, e) =>
-{
-    e.Cancel = true;
-    cts.Cancel();
-};
-
-// Parse --link flags (repeatable). Default: udpin:14550.
-// Parse --repl-remote <port> to enable the remote REPL socket (off by default).
+// Parse args before creating the logger so --log-level can take effect.
 var linkDescriptors = new List<string>();
 int? remotePort = null;
+var logLevel = LogLevel.Information;
 for (var i = 0; i < args.Length; i++)
 {
     if (args[i].Equals("--link", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
@@ -43,16 +28,44 @@ for (var i = 0; i < args.Length; i++)
     {
         if (!int.TryParse(args[++i], out var port))
         {
-            logger.LogError("--repl-remote requires a port number");
+            Console.Error.WriteLine("--repl-remote requires a port number");
             return 1;
         }
 
         remotePort = port;
     }
+    else if (
+        args[i].Equals("--log-level", StringComparison.OrdinalIgnoreCase)
+        && i + 1 < args.Length
+    )
+    {
+        if (!Enum.TryParse<LogLevel>(args[++i], ignoreCase: true, out logLevel))
+        {
+            Console.Error.WriteLine(
+                "--log-level must be one of: Trace, Debug, Information, Warning, Error, Critical"
+            );
+            return 1;
+        }
+    }
 }
 
 if (linkDescriptors.Count == 0)
     linkDescriptors.Add("udpin:14550");
+
+using var loggerFactory = LoggerFactory.Create(builder =>
+{
+    builder.AddConsole();
+    builder.SetMinimumLevel(logLevel);
+});
+
+var logger = loggerFactory.CreateLogger("Groundwork");
+var cts = new CancellationTokenSource();
+
+Console.CancelKeyPress += (_, e) =>
+{
+    e.Cancel = true;
+    cts.Cancel();
+};
 
 var registry = new VehicleRegistry(
     loggerFactory,
