@@ -54,12 +54,12 @@ jobs:
 
       - uses: actions/setup-dotnet@v5
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
 
       # -- Health marker: track firmware server reachability ----------------
       - name: Restore health marker
         id: health
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: .sitl-health
           key: sitl-health-${{ matrix.os }}-never
@@ -96,7 +96,7 @@ jobs:
 
       - name: Save health marker
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: .sitl-health
           key: sitl-health-${{ matrix.os }}-${{ github.run_id }}
@@ -104,7 +104,7 @@ jobs:
       # -- SITL binary cache -----------------------------------------------
       - name: Restore SITL cache
         id: sitl-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: tests/integration/sitl
           key: sitl-${{ matrix.os }}-${{ steps.sitl-version.outputs.version }}
@@ -116,7 +116,7 @@ jobs:
 
       - name: Save SITL cache
         if: steps.sitl-cache.outputs.cache-hit != 'true' && steps.sitl-version.outputs.fetch-ok == 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: tests/integration/sitl
           key: sitl-${{ matrix.os }}-${{ steps.sitl-version.outputs.version }}
