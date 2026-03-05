@@ -111,6 +111,9 @@ new RcModule(cts.Token).Register(commands);
 new LinkModule().Register(commands);
 new DiagModule().Register(commands);
 new OverviewModule().Register(commands);
+#if LOSSY_LINK
+new LossyModule().Register(commands);
+#endif
 commands.Register("help", new HelpCommand(commands));
 
 // -- Remote REPL socket (opt-in via --repl-remote <port>) --

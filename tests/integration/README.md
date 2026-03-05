@@ -49,6 +49,34 @@ For integration tests needing a pymavlink observer, add to the SITL launch:
 --serial1=udpclient:127.0.0.1:14590
 ```
 
+## Lossy Link Simulation
+
+Debug builds include `LossyConnection`, an IConnection decorator that wraps
+live links with configurable impairment. All controls are runtime-adjustable
+via the `lossy` command family:
+
+| Command | Description |
+| - | - |
+| `lossy status` | Show all links with current impairment settings |
+| `lossy uplink [index]` | Toggle outbound kill switch |
+| `lossy downlink [index]` | Toggle inbound kill switch |
+| `lossy rxcorrupt [index] <percent>` | Set inbound byte corruption rate (%) |
+| `lossy rxpacketloss [index] <percent>` | Set corruption rate from target packet loss % |
+| `lossy txdrop [index] <percent>` | Set outbound per-packet drop rate (%) |
+| `lossy latency [index] <ms>` | Set symmetric one-way latency in ms |
+
+Link index defaults to 0 when omitted.
+
+### LTE profile
+
+Simulates a medium-quality cellular link:
+
+```plaintext
+lossy latency 500
+lossy rxpacketloss 3
+lossy txdrop 5
+```
+
 ## QuadPlane Flight Sequences
 
 QuadPlane reports as `FIXED_WING`. Uses `PLANE_MODE` enum for mode names.
