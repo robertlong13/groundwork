@@ -41,6 +41,8 @@ public sealed class LinkManager : IAsyncDisposable
 
     public MavChannel GetChannel(int index) => _links[index].Channel;
 
+    public IConnection GetConnection(int index) => _links[index].Connection;
+
     public IEnumerable<MavChannel> Channels => _links.Select(static l => l.Channel);
 
     /// <summary>
@@ -52,7 +54,12 @@ public sealed class LinkManager : IAsyncDisposable
     /// <exception cref="FormatException">The descriptor is not a recognized format.</exception>
     public async Task<MavChannel> AddAsync(string descriptor, CancellationToken ct = default)
     {
-        var connection = ConnectionString.Parse(descriptor, _loggerFactory);
+        IConnection connection = ConnectionString.Parse(descriptor, _loggerFactory);
+
+#if LOSSY_LINK
+        if (connection is not TlogConnection)
+            connection = new LossyConnection(connection);
+#endif
 
         try
         {
