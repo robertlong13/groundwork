@@ -23,14 +23,17 @@ public class VehicleRegistry
     private readonly ConcurrentDictionary<ulong, Vehicle> _vehicles = new();
     private readonly ILoggerFactory _loggerFactory;
     private readonly IReadOnlyDictionary<MAVLink.MAV_DATA_STREAM, int>? _defaultStreamRates;
+    private readonly ArduPilot.ParamMetadataFetcher? _metadataFetcher;
 
     public VehicleRegistry(
         ILoggerFactory? loggerFactory = null,
-        IReadOnlyDictionary<MAVLink.MAV_DATA_STREAM, int>? defaultStreamRates = null
+        IReadOnlyDictionary<MAVLink.MAV_DATA_STREAM, int>? defaultStreamRates = null,
+        ArduPilot.ParamMetadataFetcher? metadataFetcher = null
     )
     {
         _loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
         _defaultStreamRates = defaultStreamRates;
+        _metadataFetcher = metadataFetcher;
     }
 
     /// <summary>
@@ -40,7 +43,7 @@ public class VehicleRegistry
     {
         return _vehicles.GetOrAdd(
             uid,
-            _ => new Vehicle(uid, sysId, _loggerFactory, _defaultStreamRates)
+            _ => new Vehicle(uid, sysId, _loggerFactory, _defaultStreamRates, _metadataFetcher)
         );
     }
 

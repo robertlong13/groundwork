@@ -12,6 +12,7 @@ using Groundwork.Console;
 using Groundwork.Console.Commands;
 using Groundwork.Core.Vehicles;
 using Microsoft.Extensions.Logging;
+using ArduPilot = Groundwork.Core.ArduPilot;
 
 // Parse args before creating the logger so --log-level can take effect.
 var linkDescriptors = new List<string>();
@@ -67,6 +68,23 @@ Console.CancelKeyPress += (_, e) =>
     cts.Cancel();
 };
 
+// -- Parameter metadata resolution --
+
+var metadataCacheDir = Path.Combine(
+    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+    "Groundwork",
+    "param-metadata"
+);
+var httpClient = new HttpClient();
+var metadataMemoryCache = new ParamMetadataCache();
+var metadataDiskCache = new ArduPilot.ParamMetadataDiskCache(metadataCacheDir);
+var metadataFetcher = new ArduPilot.ParamMetadataFetcher(
+    httpClient,
+    metadataMemoryCache,
+    loggerFactory.CreateLogger<ArduPilot.ParamMetadataFetcher>(),
+    metadataDiskCache
+);
+
 var registry = new VehicleRegistry(
     loggerFactory,
     new Dictionary<MAVLink.MAV_DATA_STREAM, int>
@@ -77,7 +95,8 @@ var registry = new VehicleRegistry(
         [MAVLink.MAV_DATA_STREAM.RC_CHANNELS] = 2,
         [MAVLink.MAV_DATA_STREAM.EXTRA2] = 2,
         [MAVLink.MAV_DATA_STREAM.EXTRA3] = 2,
-    }
+    },
+    metadataFetcher
 );
 
 await using var links = new LinkManager(registry, loggerFactory);
