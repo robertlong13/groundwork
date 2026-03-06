@@ -10,6 +10,7 @@
 
 using System.Reactive.Linq;
 using Groundwork.Core.Channels;
+using Microsoft.Extensions.Logging;
 
 namespace Groundwork.Core.Vehicles;
 
@@ -25,6 +26,7 @@ public class Vehicle
     public Vehicle(
         ulong uid,
         byte sysId,
+        ILoggerFactory? loggerFactory = null,
         IReadOnlyDictionary<MAVLink.MAV_DATA_STREAM, int>? defaultStreamRates = null
     )
     {
