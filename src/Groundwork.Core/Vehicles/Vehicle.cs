@@ -29,18 +29,21 @@ public class Vehicle
     );
     private readonly ILogger _logger;
     private readonly Lock _lock = new();
+    private readonly ArduPilot.ParamMetadataFetcher? _metadataFetcher;
 
     public Vehicle(
         ulong uid,
         byte sysId,
         ILoggerFactory loggerFactory,
-        IReadOnlyDictionary<MAVLink.MAV_DATA_STREAM, int>? defaultStreamRates = null
+        IReadOnlyDictionary<MAVLink.MAV_DATA_STREAM, int>? defaultStreamRates = null,
+        ArduPilot.ParamMetadataFetcher? metadataFetcher = null
     )
     {
         Uid = uid;
         SysId = sysId;
         _logger = loggerFactory.CreateLogger<Vehicle>();
         RateController = new StreamRateController(sysId, defaultStreamRates);
+        _metadataFetcher = metadataFetcher;
     }
 
     public ulong Uid { get; }
@@ -411,6 +414,40 @@ public class Vehicle
 
         var vehicleMessages = channel.Messages.Where(m => m.sysid == SysId);
         RateController.AddChannel(channel.SendAsync, vehicleMessages);
+
+        if (ParameterMetadata is null && _metadataFetcher is not null)
+            _ = ResolveMetadataAsync();
+    }
+
+    private async Task ResolveMetadataAsync()
+    {
+        try
+        {
+            var state = CanonicalState;
+            if (state is null)
+                return;
+
+            var family = ArduPilot.FirmwareFamilyMap.FromMavType(state.Type);
+            if (family is null)
+                return;
+
+            var version = state.FirmwareVersion;
+            if (version == 0)
+                return;
+
+            var major = (int)(version >> 24);
+            var minor = (int)((version >> 16) & 0xFF);
+
+            var metadata = await _metadataFetcher!
+                .EnsureAsync(family.Value, major, minor)
+                .ConfigureAwait(false);
+            if (metadata is not null)
+                ParameterMetadata = metadata;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Parameter metadata resolution failed");
+        }
     }
 
     internal void RemoveChannel(MavChannel channel)

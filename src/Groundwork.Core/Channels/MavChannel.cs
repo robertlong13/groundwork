@@ -400,13 +400,24 @@ public sealed class MavChannel : IDisposable
         {
             state = new VehicleState();
             _states[message.sysid] = state;
+        }
 
-            _logger.LogInformation(
-                "{Name}: new sysid={Sysid}, requesting AUTOPILOT_VERSION",
-                Name,
-                message.sysid
+        // Only start AUTOPILOT_VERSION negotiation after the first heartbeat,
+        // so VehicleState.Type is populated before the Vehicle is constructed.
+        if (message.msgid == (uint)MAVLink.MAVLINK_MSG_ID.HEARTBEAT)
+        {
+            _negotiations.GetOrAdd(
+                message.sysid,
+                sysId =>
+                {
+                    _logger.LogInformation(
+                        "{Name}: new sysid={Sysid}, requesting AUTOPILOT_VERSION",
+                        Name,
+                        sysId
+                    );
+                    return NegotiateVersionAsync(sysId);
+                }
             );
-            _negotiations[message.sysid] = NegotiateVersionAsync(message.sysid);
         }
 
         // Update state before forwarding to external consumers, so
@@ -435,7 +446,7 @@ public sealed class MavChannel : IDisposable
             }
             else
             {
-                var vehicle = _vehicleRegistry.GetOrCreate(uid.Value, message.sysid);
+                var vehicle = _vehicleRegistry.GetOrCreate(uid.Value, message.sysid, this);
                 _vehicles[message.sysid] = vehicle;
                 vehicle.AddChannel(this);
 
@@ -503,9 +514,7 @@ public sealed class MavChannel : IDisposable
                 sysId
             );
         }
-        finally
-        {
-            _negotiations.TryRemove(sysId, out _);
-        }
+        // Don't remove from _negotiations -- the entry prevents
+        // re-negotiation on subsequent heartbeats from the same sysid.
     }
 }
