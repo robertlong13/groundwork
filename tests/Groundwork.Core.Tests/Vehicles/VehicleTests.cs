@@ -79,8 +79,12 @@ public class VehicleTests
         var registry = new VehicleRegistry();
         using var channel = new MavChannel(connection, registry, NullLoggerFactory.Instance);
 
-        var vehicle = new Vehicle(uid: 1, sysId: SysId, loggerFactory: NullLoggerFactory.Instance);
-        vehicle.AddChannel(channel);
+        var vehicle = new Vehicle(
+            uid: 1,
+            sysId: SysId,
+            channel: channel,
+            loggerFactory: NullLoggerFactory.Instance
+        );
 
         // Inject a PARAM_VALUE packet as if the autopilot sent it unprompted.
         var pv = new MAVLink.mavlink_param_value_t

@@ -9,6 +9,7 @@
 // (at your option) any later version.
 
 using System.Collections.Concurrent;
+using Groundwork.Core.Channels;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -39,11 +40,18 @@ public class VehicleRegistry
     /// <summary>
     /// Returns the vehicle for the given UID, creating one if it doesn't exist.
     /// </summary>
-    public Vehicle GetOrCreate(ulong uid, byte sysId)
+    public Vehicle GetOrCreate(ulong uid, byte sysId, MavChannel channel)
     {
         return _vehicles.GetOrAdd(
             uid,
-            _ => new Vehicle(uid, sysId, _loggerFactory, _defaultStreamRates, _metadataFetcher)
+            _ => new Vehicle(
+                uid,
+                sysId,
+                channel,
+                _loggerFactory,
+                _defaultStreamRates,
+                _metadataFetcher
+            )
         );
     }
 
