@@ -37,12 +37,6 @@ public sealed class OverviewModule
         }
 
         var state = vehicle.CanonicalState;
-        if (state is null)
-        {
-            ctx.Output.WriteLine("Vehicle discovered but no telemetry yet");
-            return Task.CompletedTask;
-        }
-
         var modeName = vehicle.ModeToName(state.CustomMode);
 
         ctx.Output.WriteLine($"Type:     {state.Type}");

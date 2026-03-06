@@ -34,6 +34,7 @@ public class Vehicle
     public Vehicle(
         ulong uid,
         byte sysId,
+        MavChannel channel,
         ILoggerFactory loggerFactory,
         IReadOnlyDictionary<MAVLink.MAV_DATA_STREAM, int>? defaultStreamRates = null,
         ArduPilot.ParamMetadataFetcher? metadataFetcher = null
@@ -44,6 +45,7 @@ public class Vehicle
         _logger = loggerFactory.CreateLogger<Vehicle>();
         RateController = new StreamRateController(sysId, defaultStreamRates);
         _metadataFetcher = metadataFetcher;
+        AddChannel(channel);
     }
 
     public ulong Uid { get; }
@@ -61,7 +63,7 @@ public class Vehicle
     /// <summary>
     /// Gets the primary channel for this vehicle, through which outbound commands are routed.
     /// </summary>
-    public MavChannel? PrimaryChannel
+    public MavChannel PrimaryChannel
     {
         get
         {
@@ -70,7 +72,8 @@ public class Vehicle
                 // TODO: channel selection strategy (manual/auto).
                 foreach (var ch in _channels)
                     return ch;
-                return null;
+                // Constructor guarantees at least one channel.
+                throw new InvalidOperationException("Vehicle has no channels");
             }
         }
     }
@@ -78,7 +81,7 @@ public class Vehicle
     /// <summary>
     /// Gets the canonical vehicle state, delegated from the primary channel.
     /// </summary>
-    public VehicleState? CanonicalState => PrimaryChannel?.GetState(SysId);
+    public VehicleState CanonicalState => PrimaryChannel.GetState(SysId)!;
 
     /// <summary>
     /// Gets the channels that can reach this vehicle.
@@ -97,18 +100,15 @@ public class Vehicle
     /// <summary>
     /// Returns the custom_mode number for a mode name.
     /// </summary>
-    /// <returns>The custom_mode number, or <see langword="null"/> if unrecognized or no heartbeat received.</returns>
-    public uint? NameToMode(string name) =>
-        CanonicalState is { } state ? ArduPilot.ModeMap.NameToMode(name, state.Type) : null;
+    /// <returns>The custom_mode number, or <see langword="null"/> if unrecognized.</returns>
+    public uint? NameToMode(string name) => ArduPilot.ModeMap.NameToMode(name, CanonicalState.Type);
 
     /// <summary>
     /// Returns the display name for a custom_mode number.
     /// </summary>
     /// <returns>The mode display name, or "Mode(N)" for unrecognized modes.</returns>
     public string ModeToName(uint customMode) =>
-        CanonicalState is { } state
-            ? ArduPilot.ModeMap.ModeToName(customMode, state.Type)
-            : $"Mode({customMode})";
+        ArduPilot.ModeMap.ModeToName(customMode, CanonicalState.Type);
 
     /// <summary>
     /// Gets the parameter cache, populated by fetch, set, and download operations.
@@ -142,9 +142,7 @@ public class Vehicle
     /// Gets the available mode names and their custom_mode numbers for this vehicle type.
     /// </summary>
     public IReadOnlyDictionary<string, uint> AvailableModes =>
-        CanonicalState is { } state
-            ? ArduPilot.ModeMap.GetModes(state.Type)
-            : new Dictionary<string, uint>();
+        ArduPilot.ModeMap.GetModes(CanonicalState.Type);
 
     /// <summary>
     /// Arms the vehicle.
@@ -220,8 +218,7 @@ public class Vehicle
     /// <exception cref="TimeoutException">No response after all retry attempts.</exception>
     public async Task<double> FetchParameterAsync(string name, CancellationToken ct = default)
     {
-        var channel =
-            PrimaryChannel ?? throw new InvalidOperationException("No channel available.");
+        var channel = PrimaryChannel;
 
         var value = await channel.FetchParameterAsync(SysId, name, ct: ct).ConfigureAwait(false);
         var upperName = name.ToUpperInvariant();
@@ -248,8 +245,7 @@ public class Vehicle
         CancellationToken ct = default
     )
     {
-        var channel =
-            PrimaryChannel ?? throw new InvalidOperationException("No channel available.");
+        var channel = PrimaryChannel;
 
         var confirmed = await channel
             .SetParameterAsync(SysId, name, (float)value, ct: ct)
@@ -294,8 +290,7 @@ public class Vehicle
         CancellationToken ct = default
     )
     {
-        var channel =
-            PrimaryChannel ?? throw new InvalidOperationException("No channel available.");
+        var channel = PrimaryChannel;
 
         var download = ArduPilot.BulkParameterDownload.DownloadViaFtpAsync;
         var count = await download(channel, SysId, WriteParam, _logger, progress, ct)
@@ -322,8 +317,7 @@ public class Vehicle
         CancellationToken ct = default
     )
     {
-        var channel =
-            PrimaryChannel ?? throw new InvalidOperationException("No channel available.");
+        var channel = PrimaryChannel;
 
         // Vehicle's existing PARAM_VALUE subscription populates the cache.
         return await ParamListDownload
@@ -352,8 +346,7 @@ public class Vehicle
         CancellationToken ct = default
     )
     {
-        var channel =
-            PrimaryChannel ?? throw new InvalidOperationException("No channel available.");
+        var channel = PrimaryChannel;
 
         return channel.SendCommandAsync(
             SysId,
@@ -381,14 +374,19 @@ public class Vehicle
         CancellationToken ct = default
     )
     {
-        var channel =
-            PrimaryChannel ?? throw new InvalidOperationException("No channel available.");
+        var channel = PrimaryChannel;
 
         return channel.SendAsync(messageType, data, ct);
     }
 
     internal void AddChannel(MavChannel channel)
     {
+        lock (_lock)
+        {
+            if (!_channels.Add(channel))
+                return;
+        }
+
         var paramSub = channel
             .Messages.Where(m =>
                 m.msgid == (uint)MAVLink.MAVLINK_MSG_ID.PARAM_VALUE && m.sysid == SysId
@@ -408,7 +406,6 @@ public class Vehicle
 
         lock (_lock)
         {
-            _channels.Add(channel);
             _paramSubs[channel] = paramSub;
         }
 
@@ -424,8 +421,6 @@ public class Vehicle
         try
         {
             var state = CanonicalState;
-            if (state is null)
-                return;
 
             var family = ArduPilot.FirmwareFamilyMap.FromMavType(state.Type);
             if (family is null)
