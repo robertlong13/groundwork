@@ -130,6 +130,12 @@ public class Vehicle
     public int ReportedParameterCount { get; private set; }
 
     /// <summary>
+    /// Gets or sets the shared parameter metadata for this vehicle's firmware version.
+    /// Null until metadata has been fetched.
+    /// </summary>
+    public IReadOnlyDictionary<string, ParamMetadata>? ParameterMetadata { get; set; }
+
+    /// <summary>
     /// Gets the available mode names and their custom_mode numbers for this vehicle type.
     /// </summary>
     public IReadOnlyDictionary<string, uint> AvailableModes =>
