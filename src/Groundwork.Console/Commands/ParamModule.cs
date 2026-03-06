@@ -25,8 +25,17 @@ public sealed class ParamModule
             "param show",
             new DelegateCommand(
                 "Show cached parameters",
-                "param show [pattern]",
+                "param show [pattern] [-v]",
                 (args, ctx) => Show(args, ctx)
+            )
+        );
+
+        commands.Register(
+            "param help",
+            new DelegateCommand(
+                "Show metadata for a parameter",
+                "param help <name>",
+                (args, ctx) => Help(args, ctx)
             )
         );
 
@@ -83,7 +92,18 @@ public sealed class ParamModule
             return Task.CompletedTask;
         }
 
-        var pattern = args.Length > 0 ? args[0] : "*";
+        // Parse -v flag from anywhere in args.
+        var verbose = false;
+        var pattern = "*";
+        foreach (var arg in args)
+        {
+            if (arg == "-v")
+                verbose = true;
+            else
+                pattern = arg;
+        }
+
+        var metadata = verbose ? vehicle.ParameterMetadata : null;
         var matched = 0;
 
         foreach (var name in parameters.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase))
@@ -91,10 +111,19 @@ public sealed class ParamModule
             if (MatchesGlob(name, pattern))
             {
                 var entry = parameters[name];
+                var valueStr = FormatValue(entry.Value);
                 var line =
                     entry.DefaultValue.HasValue && entry.DefaultValue.Value != entry.Value
-                        ? $"  {name, -16} {FormatValue(entry.Value), -12} (default {FormatValue(entry.DefaultValue.Value)})"
-                        : $"  {name, -16} {FormatValue(entry.Value)}";
+                        ? $"  {name, -16} {valueStr, -12} (default {FormatValue(entry.DefaultValue.Value)})"
+                        : $"  {name, -16} {valueStr}";
+
+                if (metadata is not null && metadata.TryGetValue(name, out var meta))
+                {
+                    var info = FormatValueInfo(meta, entry.Value);
+                    if (info is not null)
+                        line = $"{line, -40} # {info}";
+                }
+
                 ctx.Output.WriteLine(line);
                 matched++;
             }
@@ -102,6 +131,106 @@ public sealed class ParamModule
 
         if (matched == 0)
             ctx.Output.WriteLine($"No parameters matching '{pattern}'");
+
+        return Task.CompletedTask;
+    }
+
+    private static Task Help(string[] args, CommandContext ctx)
+    {
+        if (args.Length == 0)
+        {
+            ctx.Output.WriteLine("Usage: param help <name>");
+            return Task.CompletedTask;
+        }
+
+        var vehicle = ctx.CurrentVehicle;
+        if (vehicle is null)
+        {
+            ctx.Output.WriteLine("No vehicle connected");
+            return Task.CompletedTask;
+        }
+
+        var paramName = args[0].ToUpperInvariant();
+        var metadata = vehicle.ParameterMetadata;
+        if (metadata is null)
+        {
+            ctx.Output.WriteLine("No parameter metadata available");
+            return Task.CompletedTask;
+        }
+
+        if (!metadata.TryGetValue(paramName, out var meta))
+        {
+            ctx.Output.WriteLine($"Parameter '{paramName}' not found in metadata");
+            return Task.CompletedTask;
+        }
+
+        // Header: name and display name.
+        if (meta.DisplayName is not null)
+            ctx.Output.WriteLine($"{paramName}: {meta.DisplayName}");
+        else
+            ctx.Output.WriteLine(paramName);
+
+        // Description.
+        if (meta.Description is not null)
+        {
+            ctx.Output.WriteLine();
+            ctx.Output.WriteLine(meta.Description);
+        }
+
+        // Fields (range, increment, units, flags).
+        var fields = new List<string>();
+        if (meta.Min.HasValue || meta.Max.HasValue)
+            fields.Add($"Range: {FormatOptional(meta.Min)} .. {FormatOptional(meta.Max)}");
+        if (meta.Increment.HasValue)
+            fields.Add($"Increment: {meta.Increment.Value}");
+        if (meta.Units is not null)
+            fields.Add($"Units: {meta.Units}");
+        if (meta.ReadOnly)
+            fields.Add("ReadOnly");
+        if (meta.RebootRequired)
+            fields.Add("RebootRequired");
+        if (meta.Volatile)
+            fields.Add("Volatile");
+
+        if (fields.Count > 0)
+        {
+            ctx.Output.WriteLine();
+            foreach (var field in fields)
+                ctx.Output.WriteLine($"  {field}");
+        }
+
+        // Current value (if we have params).
+        if (vehicle.Parameters.TryGetValue(paramName, out var entry))
+        {
+            ctx.Output.WriteLine();
+            var valueStr = FormatValue(entry.Value);
+            var info = FormatValueInfo(meta, entry.Value);
+            if (info is not null)
+                ctx.Output.WriteLine($"  Current: {valueStr} ({info})");
+            else
+                ctx.Output.WriteLine($"  Current: {valueStr}");
+
+            if (entry.DefaultValue.HasValue)
+                ctx.Output.WriteLine($"  Default: {FormatValue(entry.DefaultValue.Value)}");
+        }
+
+        // Values table.
+        if (meta.Values is { Count: > 0 })
+        {
+            ctx.Output.WriteLine();
+            ctx.Output.WriteLine("Values:");
+            foreach (var (code, label) in meta.Values.OrderBy(kv => kv.Key))
+                ctx.Output.WriteLine($"  {code, 6} : {label}");
+        }
+
+        // Bitmask table.
+        if (meta.Bitmask is { Count: > 0 })
+        {
+            ctx.Output.WriteLine();
+            ctx.Output.WriteLine("Bitmask:");
+            foreach (var (bit, label) in meta.Bitmask.OrderBy(kv => kv.Key))
+                ctx.Output.WriteLine($"  {bit, 3} : {label}");
+        }
 
         return Task.CompletedTask;
     }
@@ -245,6 +374,46 @@ public sealed class ParamModule
             return ((long)value).ToString();
         return value.ToString("G7");
     }
+
+    private static string? FormatValueInfo(ParamMetadata meta, double value)
+    {
+        // Bitmask: show set flag names.
+        if (meta.Bitmask is { Count: > 0 })
+        {
+            var bits = (int)value;
+            var flags = new List<string>();
+            var remaining = bits;
+            foreach (var (bit, label) in meta.Bitmask.OrderBy(kv => kv.Key))
+            {
+                if ((bits & (1 << bit)) != 0)
+                {
+                    flags.Add(label);
+                    remaining &= ~(1 << bit);
+                }
+            }
+
+            for (var i = 0; i < 32; i++)
+            {
+                if ((remaining & (1 << i)) != 0)
+                    flags.Add($"Bit{i}");
+            }
+
+            return flags.Count > 0 ? string.Join("|", flags) : null;
+        }
+
+        // Enum: resolve code to label.
+        if (meta.Values is { Count: > 0 })
+        {
+            var code = (int)value;
+            if (value == code && meta.Values.TryGetValue(code, out var label))
+                return label;
+        }
+
+        return null;
+    }
+
+    private static string FormatOptional(float? value) =>
+        value.HasValue ? value.Value.ToString("G7") : "?";
 
     private static bool MatchesGlob(string name, string pattern)
     {
