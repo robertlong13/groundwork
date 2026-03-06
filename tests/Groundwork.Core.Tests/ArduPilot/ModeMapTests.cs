@@ -8,11 +8,11 @@
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 
-using Groundwork.Core.Modes;
+using Groundwork.Core.ArduPilot;
 
-namespace Groundwork.Core.Tests.Modes;
+namespace Groundwork.Core.Tests.ArduPilot;
 
-public class ArduPilotModeMapTests
+public class ModeMapTests
 {
     // -- ModeToName --
 
@@ -27,7 +27,7 @@ public class ArduPilotModeMapTests
         string expected
     )
     {
-        Assert.Equal(expected, ArduPilotModeMap.ModeToName(mode, type));
+        Assert.Equal(expected, ModeMap.ModeToName(mode, type));
     }
 
     [Theory]
@@ -43,7 +43,7 @@ public class ArduPilotModeMapTests
         string expected
     )
     {
-        Assert.Equal(expected, ArduPilotModeMap.ModeToName(mode, type));
+        Assert.Equal(expected, ModeMap.ModeToName(mode, type));
     }
 
     [Theory]
@@ -56,19 +56,19 @@ public class ArduPilotModeMapTests
         string expected
     )
     {
-        Assert.Equal(expected, ArduPilotModeMap.ModeToName(mode, type));
+        Assert.Equal(expected, ModeMap.ModeToName(mode, type));
     }
 
     [Fact]
     public void ModeToName_UnknownMode_ReturnsModeN()
     {
-        Assert.Equal("Mode(255)", ArduPilotModeMap.ModeToName(255, MAVLink.MAV_TYPE.QUADROTOR));
+        Assert.Equal("Mode(255)", ModeMap.ModeToName(255, MAVLink.MAV_TYPE.QUADROTOR));
     }
 
     [Fact]
     public void ModeToName_UnmappedType_ReturnsModeN()
     {
-        Assert.Equal("Mode(0)", ArduPilotModeMap.ModeToName(0, MAVLink.MAV_TYPE.GCS));
+        Assert.Equal("Mode(0)", ModeMap.ModeToName(0, MAVLink.MAV_TYPE.GCS));
     }
 
     // -- NameToMode --
@@ -84,7 +84,7 @@ public class ArduPilotModeMapTests
         uint expected
     )
     {
-        Assert.Equal(expected, ArduPilotModeMap.NameToMode(name, type));
+        Assert.Equal(expected, ModeMap.NameToMode(name, type));
     }
 
     [Theory]
@@ -93,27 +93,27 @@ public class ArduPilotModeMapTests
     [InlineData("GUIDED")]
     public void NameToMode_CaseInsensitive(string name)
     {
-        Assert.Equal(4u, ArduPilotModeMap.NameToMode(name, MAVLink.MAV_TYPE.QUADROTOR));
+        Assert.Equal(4u, ModeMap.NameToMode(name, MAVLink.MAV_TYPE.QUADROTOR));
     }
 
     [Fact]
     public void NameToMode_UnknownName_ReturnsNull()
     {
-        Assert.Null(ArduPilotModeMap.NameToMode("BOGUS", MAVLink.MAV_TYPE.QUADROTOR));
+        Assert.Null(ModeMap.NameToMode("BOGUS", MAVLink.MAV_TYPE.QUADROTOR));
     }
 
     [Fact]
     public void NameToMode_UnmappedType_ReturnsNull()
     {
-        Assert.Null(ArduPilotModeMap.NameToMode("GUIDED", MAVLink.MAV_TYPE.GCS));
+        Assert.Null(ModeMap.NameToMode("GUIDED", MAVLink.MAV_TYPE.GCS));
     }
 
     [Fact]
     public void NameToMode_SameNameDifferentType_ReturnsDifferentValues()
     {
         // LOITER is mode 5 for copter, mode 12 for plane
-        var copter = ArduPilotModeMap.NameToMode("LOITER", MAVLink.MAV_TYPE.QUADROTOR);
-        var plane = ArduPilotModeMap.NameToMode("LOITER", MAVLink.MAV_TYPE.FIXED_WING);
+        var copter = ModeMap.NameToMode("LOITER", MAVLink.MAV_TYPE.QUADROTOR);
+        var plane = ModeMap.NameToMode("LOITER", MAVLink.MAV_TYPE.FIXED_WING);
 
         Assert.Equal(5u, copter);
         Assert.Equal(12u, plane);
@@ -130,7 +130,7 @@ public class ArduPilotModeMapTests
     public void CopterTypes_UseCopterModes(MAVLink.MAV_TYPE type)
     {
         // STABILIZE=0 is copter-specific (plane has MANUAL=0)
-        Assert.Equal("STABILIZE", ArduPilotModeMap.ModeToName(0, type));
+        Assert.Equal("STABILIZE", ModeMap.ModeToName(0, type));
     }
 
     [Theory]
@@ -141,6 +141,6 @@ public class ArduPilotModeMapTests
     public void VtolTypes_UsePlaneModes(MAVLink.MAV_TYPE type)
     {
         // MANUAL=0 is plane-specific (copter has STABILIZE=0)
-        Assert.Equal("MANUAL", ArduPilotModeMap.ModeToName(0, type));
+        Assert.Equal("MANUAL", ModeMap.ModeToName(0, type));
     }
 }

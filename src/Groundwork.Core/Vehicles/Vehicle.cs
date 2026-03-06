@@ -90,7 +90,7 @@ public class Vehicle
     /// </summary>
     /// <returns>The custom_mode number, or <see langword="null"/> if unrecognized or no heartbeat received.</returns>
     public uint? NameToMode(string name) =>
-        CanonicalState is { } state ? Modes.ArduPilotModeMap.NameToMode(name, state.Type) : null;
+        CanonicalState is { } state ? ArduPilot.ModeMap.NameToMode(name, state.Type) : null;
 
     /// <summary>
     /// Returns the display name for a custom_mode number.
@@ -98,7 +98,7 @@ public class Vehicle
     /// <returns>The mode display name, or "Mode(N)" for unrecognized modes.</returns>
     public string ModeToName(uint customMode) =>
         CanonicalState is { } state
-            ? Modes.ArduPilotModeMap.ModeToName(customMode, state.Type)
+            ? ArduPilot.ModeMap.ModeToName(customMode, state.Type)
             : $"Mode({customMode})";
 
     /// <summary>
@@ -106,13 +106,13 @@ public class Vehicle
     /// </summary>
     public IReadOnlyDictionary<string, uint> AvailableModes =>
         CanonicalState is { } state
-            ? Modes.ArduPilotModeMap.GetModes(state.Type)
+            ? ArduPilot.ModeMap.GetModes(state.Type)
             : new Dictionary<string, uint>();
 
     /// <summary>
     /// Arms the vehicle.
     /// </summary>
-    /// <param name="force">Bypass pre-arm checks (ArduPilot-specific).</param>
+    /// <param name="force">Bypass pre-arm checks.</param>
     /// <returns>The <see cref="MAVLink.MAV_RESULT"/> from the ACK.</returns>
     /// <exception cref="InvalidOperationException">No channel available.</exception>
     /// <exception cref="TimeoutException">No ACK within timeout.</exception>
@@ -120,7 +120,7 @@ public class Vehicle
         SendCommandAsync(
             MAVLink.MAV_CMD.COMPONENT_ARM_DISARM,
             param1: 1f,
-            // ArduPilot force-arm constant (not MAVLink spec).
+            // ArduPilot force-arm: 2989 (spec says 21196 for both arm and disarm).
             param2: force ? 2989f : 0f,
             ct: ct
         );
@@ -128,7 +128,7 @@ public class Vehicle
     /// <summary>
     /// Disarms the vehicle.
     /// </summary>
-    /// <param name="force">Force disarm (ArduPilot-specific).</param>
+    /// <param name="force">Force disarm even in flight.</param>
     /// <returns>The <see cref="MAVLink.MAV_RESULT"/> from the ACK.</returns>
     /// <exception cref="InvalidOperationException">No channel available.</exception>
     /// <exception cref="TimeoutException">No ACK within timeout.</exception>
@@ -139,7 +139,6 @@ public class Vehicle
         SendCommandAsync(
             MAVLink.MAV_CMD.COMPONENT_ARM_DISARM,
             param1: 0f,
-            // ArduPilot force-disarm constant (not MAVLink spec).
             param2: force ? 21196f : 0f,
             ct: ct
         );
