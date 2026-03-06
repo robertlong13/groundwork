@@ -9,6 +9,8 @@
 // (at your option) any later version.
 
 using System.Collections.Concurrent;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Groundwork.Core.Vehicles;
 
@@ -19,12 +21,15 @@ namespace Groundwork.Core.Vehicles;
 public class VehicleRegistry
 {
     private readonly ConcurrentDictionary<ulong, Vehicle> _vehicles = new();
+    private readonly ILoggerFactory _loggerFactory;
     private readonly IReadOnlyDictionary<MAVLink.MAV_DATA_STREAM, int>? _defaultStreamRates;
 
     public VehicleRegistry(
+        ILoggerFactory? loggerFactory = null,
         IReadOnlyDictionary<MAVLink.MAV_DATA_STREAM, int>? defaultStreamRates = null
     )
     {
+        _loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
         _defaultStreamRates = defaultStreamRates;
     }
 
@@ -33,7 +38,10 @@ public class VehicleRegistry
     /// </summary>
     public Vehicle GetOrCreate(ulong uid, byte sysId)
     {
-        return _vehicles.GetOrAdd(uid, _ => new Vehicle(uid, sysId, _defaultStreamRates));
+        return _vehicles.GetOrAdd(
+            uid,
+            _ => new Vehicle(uid, sysId, _loggerFactory, _defaultStreamRates)
+        );
     }
 
     public Vehicle? TryGet(ulong uid)

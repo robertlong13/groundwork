@@ -55,6 +55,7 @@ if (linkDescriptors.Count == 0)
     linkDescriptors.Add("udpin:14550");
 
 var registry = new VehicleRegistry(
+    loggerFactory,
     new Dictionary<MAVLink.MAV_DATA_STREAM, int>
     {
         [MAVLink.MAV_DATA_STREAM.EXTRA1] = 10,
