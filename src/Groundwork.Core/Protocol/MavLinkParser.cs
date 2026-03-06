@@ -19,16 +19,16 @@ namespace Groundwork.Core.Protocol;
 /// </summary>
 public sealed class MavLinkParser : IDisposable
 {
-    private readonly ILogger<MavLinkParser> _logger;
+    private readonly ILogger _logger;
     private readonly MAVLink.MavlinkParse _parser = new();
     private readonly Subject<MAVLink.MAVLinkMessage> _messages = new();
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _parseLoop;
     private long _totalMessages;
 
-    public MavLinkParser(Stream source, ILogger<MavLinkParser> logger)
+    public MavLinkParser(Stream source, ILoggerFactory loggerFactory)
     {
-        _logger = logger;
+        _logger = loggerFactory.CreateLogger<MavLinkParser>();
         _parseLoop = Task.Run(() => RunParseLoopAsync(source, _cts.Token));
     }
 

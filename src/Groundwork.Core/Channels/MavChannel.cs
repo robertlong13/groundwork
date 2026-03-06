@@ -52,10 +52,7 @@ public sealed class MavChannel : IDisposable
         _vehicleRegistry = vehicleRegistry;
         _logger = loggerFactory.CreateLogger<MavChannel>();
 
-        _parser = new MavLinkParser(
-            connection.BaseStream,
-            loggerFactory.CreateLogger<MavLinkParser>()
-        );
+        _parser = new MavLinkParser(connection.BaseStream, loggerFactory);
 
         _parserSubscription = _parser.Messages.Subscribe(
             onNext: OnMessageReceived,
