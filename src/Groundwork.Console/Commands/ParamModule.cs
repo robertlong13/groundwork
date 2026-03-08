@@ -12,6 +12,7 @@ using System.Diagnostics;
 using System.Globalization;
 using Groundwork.Core.Channels;
 using Groundwork.Core.Vehicles;
+using ArduPilot = Groundwork.Core.ArduPilot;
 
 namespace Groundwork.Console.Commands;
 
@@ -75,6 +76,42 @@ public sealed class ParamModule
                 (args, ctx) => FetchAllAsync(v => v.DownloadParametersViaFtpAsync, ctx)
             )
         );
+
+        commands.Register(
+            "param save",
+            new DelegateCommand(
+                "Save parameters to file",
+                "param save <filename> [wildcard]",
+                (args, ctx) => Save(args, ctx)
+            )
+        );
+
+        commands.Register(
+            "param load",
+            new DelegateCommand(
+                "Load parameters from file and set on vehicle",
+                "param load <filename> [wildcard]",
+                (args, ctx) => LoadAsync(args, ctx)
+            )
+        );
+
+        commands.Register(
+            "param savechanged",
+            new DelegateCommand(
+                "Save parameters that differ from defaults",
+                "param savechanged [filename]",
+                (args, ctx) => SaveChanged(args, ctx)
+            )
+        );
+
+        commands.Register(
+            "param diff",
+            new DelegateCommand(
+                "Show parameters differing from defaults or a file",
+                "param diff [filename] [wildcard]",
+                (args, ctx) => Diff(args, ctx)
+            )
+        );
     }
 
     private static Task Show(string[] args, CommandContext ctx)
@@ -104,33 +141,29 @@ public sealed class ParamModule
                 pattern = arg;
         }
 
+        var filtered = new ParamFilter { Wildcards = [pattern] }.Apply(parameters);
         var metadata = verbose ? vehicle.ParameterMetadata : null;
-        var matched = 0;
 
-        foreach (var name in parameters.Keys.OrderBy(k => k, NaturalComparer.Instance))
+        foreach (var name in filtered.Keys.OrderBy(k => k, NaturalComparer.Instance))
         {
-            if (MatchesGlob(name, pattern))
+            var entry = filtered[name];
+            var valueStr = FormatValue(entry.Value);
+            var line =
+                entry.DefaultValue.HasValue && entry.DefaultValue.Value != entry.Value
+                    ? $"  {name, -16} {valueStr, -12} (default {FormatValue(entry.DefaultValue.Value)})"
+                    : $"  {name, -16} {valueStr}";
+
+            if (metadata is not null && metadata.TryGetValue(name, out var meta))
             {
-                var entry = parameters[name];
-                var valueStr = FormatValue(entry.Value);
-                var line =
-                    entry.DefaultValue.HasValue && entry.DefaultValue.Value != entry.Value
-                        ? $"  {name, -16} {valueStr, -12} (default {FormatValue(entry.DefaultValue.Value)})"
-                        : $"  {name, -16} {valueStr}";
-
-                if (metadata is not null && metadata.TryGetValue(name, out var meta))
-                {
-                    var info = FormatValueInfo(meta, entry.Value);
-                    if (info is not null)
-                        line = $"{line, -40} # {info}";
-                }
-
-                ctx.Output.WriteLine(line);
-                matched++;
+                var info = FormatValueInfo(meta, entry.Value);
+                if (info is not null)
+                    line = $"{line, -40} # {info}";
             }
+
+            ctx.Output.WriteLine(line);
         }
 
-        if (matched == 0)
+        if (filtered.Count == 0)
             ctx.Output.WriteLine($"No parameters matching '{pattern}'");
 
         return Task.CompletedTask;
@@ -386,6 +419,277 @@ public sealed class ParamModule
         }
     }
 
+    private static Task Save(string[] args, CommandContext ctx)
+    {
+        if (args.Length == 0)
+        {
+            ctx.Output.WriteLine("Usage: param save <filename> [wildcard]");
+            return Task.CompletedTask;
+        }
+
+        var vehicle = ctx.CurrentVehicle;
+        if (vehicle is null)
+        {
+            ctx.Output.WriteLine("No vehicle connected");
+            return Task.CompletedTask;
+        }
+
+        var parameters = vehicle.Parameters;
+        if (parameters.Count == 0)
+        {
+            ctx.Output.WriteLine("No parameters cached");
+            return Task.CompletedTask;
+        }
+
+        var filename = args[0].Trim('"');
+        var wildcard = args.Length > 1 ? args[1] : "*";
+        var filtered = new ParamFilter { Wildcards = [wildcard] }.Apply(parameters);
+
+        try
+        {
+            var count = ParamFile.Save(filename, filtered);
+            ctx.Output.WriteLine($"Saved {count} parameters to {filename}");
+        }
+        catch (IOException ex)
+        {
+            ctx.Output.WriteLine($"Save failed: {ex.Message}");
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private static async Task LoadAsync(string[] args, CommandContext ctx)
+    {
+        if (args.Length == 0)
+        {
+            ctx.Output.WriteLine("Usage: param load <filename> [wildcard]");
+            return;
+        }
+
+        var vehicle = ctx.CurrentVehicle;
+        if (vehicle is null)
+        {
+            ctx.Output.WriteLine("No vehicle connected");
+            return;
+        }
+
+        var filename = args[0].Trim('"');
+        var wildcard = args.Length > 1 ? args[1] : "*";
+
+        Dictionary<string, ParamEntry> fileParams;
+        try
+        {
+            var raw = ParamFile.Load(filename);
+            fileParams = new ParamFilter
+            {
+                Wildcards = [wildcard],
+                ExcludeWildcards = ArduPilot.ParamLoadExclusions.DefaultWildcards,
+                Exclude = ParamExclude.ReadOnly,
+                Metadata = vehicle.ParameterMetadata,
+            }.Apply(raw);
+        }
+        catch (FileNotFoundException)
+        {
+            ctx.Output.WriteLine($"File not found: {filename}");
+            return;
+        }
+
+        var cached = vehicle.Parameters;
+        var changed = 0;
+        var skipped = 0;
+
+        foreach (var (name, entry) in fileParams)
+        {
+            if (!cached.TryGetValue(name, out var existing))
+            {
+                ctx.Output.WriteLine($"Unknown parameter {name}");
+                skipped++;
+                continue;
+            }
+
+            if (ParamFile.ValuesEqual(existing.Value, entry.Value))
+                continue;
+
+            try
+            {
+                var confirmed = await vehicle.SetParameterAsync(
+                    name,
+                    entry.Value,
+                    ctx.ShutdownToken
+                );
+                ctx.Output.WriteLine(
+                    $"Changed {name, -16} {FormatValue(existing.Value)} -> {FormatValue(confirmed)}"
+                );
+                changed++;
+            }
+            catch (ParameterException ex)
+            {
+                ctx.Output.WriteLine($"Failed to set {name}: {ex.Message}");
+                skipped++;
+            }
+            catch (TimeoutException)
+            {
+                ctx.Output.WriteLine($"Timeout setting {name}");
+                skipped++;
+            }
+        }
+
+        ctx.Output.WriteLine(
+            $"Loaded {fileParams.Count} parameters from {filename} (changed {changed})"
+        );
+    }
+
+    private static Task SaveChanged(string[] args, CommandContext ctx)
+    {
+        var vehicle = ctx.CurrentVehicle;
+        if (vehicle is null)
+        {
+            ctx.Output.WriteLine("No vehicle connected");
+            return Task.CompletedTask;
+        }
+
+        var parameters = vehicle.Parameters;
+        if (parameters.Count == 0)
+        {
+            ctx.Output.WriteLine("No parameters cached");
+            return Task.CompletedTask;
+        }
+
+        var filename = args.Length > 0 ? args[0] : "changed.parm";
+
+        Dictionary<string, ParamEntry> filtered;
+        try
+        {
+            filtered = new ParamFilter { Exclude = ParamExclude.Default }.Apply(parameters);
+        }
+        catch (InvalidOperationException)
+        {
+            var anyHaveDefaults = parameters.Values.Any(e => e.DefaultValue.HasValue);
+            ctx.Output.WriteLine(
+                anyHaveDefaults
+                    ? "Defaults missing on some parameters. Fetch via FTP again."
+                    : "No defaults available. Fetch parameters via FTP first."
+            );
+            return Task.CompletedTask;
+        }
+
+        try
+        {
+            var count = ParamFile.Save(filename, filtered);
+            if (count == 0)
+                ctx.Output.WriteLine("No parameters differ from defaults");
+            else
+                ctx.Output.WriteLine($"Saved {count} parameters to {filename}");
+        }
+        catch (IOException ex)
+        {
+            ctx.Output.WriteLine($"Save failed: {ex.Message}");
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private static Task Diff(string[] args, CommandContext ctx)
+    {
+        var vehicle = ctx.CurrentVehicle;
+        if (vehicle is null)
+        {
+            ctx.Output.WriteLine("No vehicle connected");
+            return Task.CompletedTask;
+        }
+
+        var parameters = vehicle.Parameters;
+        if (parameters.Count == 0)
+        {
+            ctx.Output.WriteLine("No parameters cached");
+            return Task.CompletedTask;
+        }
+
+        // No args or first arg is a wildcard: diff against defaults.
+        // Otherwise first arg is a filename, optional second arg is wildcard.
+        Dictionary<string, double>? defaults;
+        var wildcard = "*";
+
+        if (args.Length == 0 || args[0].Contains('*'))
+        {
+            if (args.Length > 0)
+                wildcard = args[0];
+
+            defaults = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (name, entry) in parameters)
+            {
+                if (entry.DefaultValue.HasValue)
+                    defaults[name] = entry.DefaultValue.Value;
+            }
+
+            if (defaults.Count == 0)
+            {
+                ctx.Output.WriteLine("No defaults available");
+                return Task.CompletedTask;
+            }
+        }
+        else
+        {
+            var filename = args[0].Trim('"');
+            if (args.Length > 1)
+                wildcard = args[1];
+
+            try
+            {
+                var fileParams = ParamFile.Load(filename);
+                defaults = new Dictionary<string, double>(
+                    fileParams.Count,
+                    StringComparer.OrdinalIgnoreCase
+                );
+                foreach (var (name, entry) in fileParams)
+                    defaults[name] = entry.Value;
+            }
+            catch (FileNotFoundException)
+            {
+                ctx.Output.WriteLine($"File not found: {filename}");
+                return Task.CompletedTask;
+            }
+        }
+
+        var filtered = new ParamFilter { Wildcards = [wildcard] }.Apply(parameters);
+
+        ctx.Output.WriteLine();
+        ctx.Output.WriteLine($"{"Parameter", -16} {"Current", 12} {"Default", 12}");
+
+        var metadata = vehicle.ParameterMetadata;
+        var count = 0;
+
+        foreach (var name in filtered.Keys.OrderBy(k => k, NaturalComparer.Instance))
+        {
+            if (!defaults.TryGetValue(name, out var defaultValue))
+                continue;
+
+            var current = filtered[name].Value;
+            if (ParamFile.ValuesEqual(current, defaultValue))
+                continue;
+
+            var line = $"{name, -16} {current, 12:F6} {defaultValue, 12:F6}";
+
+            if (metadata is not null && metadata.TryGetValue(name, out var meta))
+            {
+                var currentInfo = FormatValueInfo(meta, current);
+                var defaultInfo = FormatValueInfo(meta, defaultValue);
+                if (currentInfo is not null && defaultInfo is not null)
+                    line += $" # {currentInfo} (was {defaultInfo})";
+                else if (currentInfo is not null)
+                    line += $" # {currentInfo}";
+            }
+
+            ctx.Output.WriteLine(line);
+            count++;
+        }
+
+        if (count == 0)
+            ctx.Output.WriteLine("No differences");
+
+        return Task.CompletedTask;
+    }
+
     private static string FormatValue(double value) =>
         value.ToString("F6", CultureInfo.InvariantCulture);
 
@@ -428,39 +732,6 @@ public sealed class ParamModule
 
     private static string FormatOptional(float? value) =>
         value.HasValue ? value.Value.ToString("G7") : "?";
-
-    private static bool MatchesGlob(string name, string pattern)
-    {
-        // Simple glob: * matches any sequence of characters.
-        var upper = pattern.ToUpperInvariant();
-        if (!upper.Contains('*'))
-            return name.Equals(upper, StringComparison.OrdinalIgnoreCase);
-
-        var parts = upper.Split('*');
-        var pos = 0;
-
-        for (int i = 0; i < parts.Length; i++)
-        {
-            if (parts[i].Length == 0)
-                continue;
-
-            var idx = name.IndexOf(parts[i], pos, StringComparison.OrdinalIgnoreCase);
-            if (idx < 0)
-                return false;
-
-            // First segment must match at start.
-            if (i == 0 && idx != 0)
-                return false;
-
-            pos = idx + parts[i].Length;
-        }
-
-        // Last segment must match at end.
-        if (parts[^1].Length > 0 && !name.EndsWith(parts[^1], StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        return true;
-    }
 
     /// <summary>
     /// Provides synchronous <see cref="IProgress{T}"/> callbacks on the calling thread.
