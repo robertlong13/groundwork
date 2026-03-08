@@ -271,6 +271,13 @@ public class Vehicle
         CancellationToken ct = default
     )
     {
+        // Clear before any full download so stale entries (e.g. params hidden
+        // after disabling a feature) don't linger and poison the cache.
+        lock (_lock)
+        {
+            _parameters.Clear();
+        }
+
         var hasFtp =
             CanonicalState is { } state
             && state.Capabilities.HasFlag(MAVLink.MAV_PROTOCOL_CAPABILITY.FTP);
