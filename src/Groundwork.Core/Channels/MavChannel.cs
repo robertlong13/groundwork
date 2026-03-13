@@ -145,9 +145,13 @@ public sealed class MavChannel : IDisposable
         var effectiveTimeout = timeout ?? TimeSpan.FromSeconds(5);
 
         // Subscribe BEFORE sending to avoid race with fast ACK.
+        // Filter by source compid when targeting a specific component.
+        // For broadcast (compid 0), accept the first ACK from any component.
         var ackTask = Messages
             .Where(m =>
-                m.msgid == (uint)MAVLink.MAVLINK_MSG_ID.COMMAND_ACK && m.sysid == targetSysId
+                m.msgid == (uint)MAVLink.MAVLINK_MSG_ID.COMMAND_ACK
+                && m.sysid == targetSysId
+                && (targetCompId == 0 || m.compid == targetCompId)
             )
             .Select(m => m.ToStructure<MAVLink.mavlink_command_ack_t>())
             .Where(ack => ack.command == (ushort)command)
