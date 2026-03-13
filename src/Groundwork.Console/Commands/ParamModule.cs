@@ -9,6 +9,7 @@
 // (at your option) any later version.
 
 using System.Diagnostics;
+using System.Globalization;
 using Groundwork.Core.Channels;
 using Groundwork.Core.Vehicles;
 using ArduPilot = Groundwork.Core.ArduPilot;
@@ -143,7 +144,7 @@ public sealed class ParamModule
         var filtered = new ParamFilter { Wildcards = [pattern] }.Apply(parameters);
         var metadata = verbose ? vehicle.ParameterMetadata : null;
 
-        foreach (var name in filtered.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase))
+        foreach (var name in filtered.Keys.OrderBy(k => k, NaturalComparer.Instance))
         {
             var entry = filtered[name];
             var valueStr = FormatValue(entry.Value);
@@ -291,9 +292,27 @@ public sealed class ParamModule
         }
 
         var name = args[0];
-        if (!double.TryParse(args[1], out var value))
+        var valueStr = args[1];
+        double value;
+        if (valueStr.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
         {
-            ctx.Output.WriteLine($"Invalid value: {args[1]}");
+            if (!int.TryParse(valueStr.AsSpan(2), NumberStyles.HexNumber, null, out var hex))
+            {
+                ctx.Output.WriteLine($"Invalid hex value: {valueStr}");
+                return;
+            }
+
+            value = hex;
+        }
+        else if (!double.TryParse(valueStr, out value))
+        {
+            ctx.Output.WriteLine($"Invalid value: {valueStr}");
+            return;
+        }
+
+        if (!vehicle.Parameters.ContainsKey(name))
+        {
+            ctx.Output.WriteLine($"Unable to find parameter '{name.ToUpperInvariant()}'");
             return;
         }
 
@@ -318,7 +337,49 @@ public sealed class ParamModule
         if (args.Length == 0)
             return FetchAllAsync(v => v.DownloadParametersAsync, ctx);
 
+        // Wildcard: expand against cached params and fetch each match.
+        if (args[0].Contains('*'))
+            return FetchWildcardAsync(args[0], ctx);
+
         return FetchOneAsync(args[0], ctx);
+    }
+
+    private static async Task FetchWildcardAsync(string pattern, CommandContext ctx)
+    {
+        var vehicle = ctx.CurrentVehicle;
+        if (vehicle is null)
+        {
+            ctx.Output.WriteLine("No vehicle connected");
+            return;
+        }
+
+        var matches = vehicle
+            .Parameters.Keys.Where(k => ParamFile.MatchesWildcard(k, pattern))
+            .OrderBy(k => k, NaturalComparer.Instance)
+            .ToList();
+
+        if (matches.Count == 0)
+        {
+            ctx.Output.WriteLine($"No parameters matching '{pattern}'");
+            return;
+        }
+
+        foreach (var name in matches)
+        {
+            try
+            {
+                var value = await vehicle.FetchParameterAsync(name, ctx.ShutdownToken);
+                ctx.Output.WriteLine($"{name} = {FormatValue(value)}");
+            }
+            catch (ParameterException ex)
+            {
+                ctx.Output.WriteLine($"Fetch {name} failed: {ex.Message}");
+            }
+            catch (TimeoutException)
+            {
+                ctx.Output.WriteLine($"Fetch timed out for '{name}'");
+            }
+        }
     }
 
     private static async Task FetchOneAsync(string name, CommandContext ctx)
@@ -640,7 +701,7 @@ public sealed class ParamModule
         var metadata = vehicle.ParameterMetadata;
         var count = 0;
 
-        foreach (var name in filtered.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase))
+        foreach (var name in filtered.Keys.OrderBy(k => k, NaturalComparer.Instance))
         {
             if (!defaults.TryGetValue(name, out var defaultValue))
                 continue;
@@ -653,9 +714,12 @@ public sealed class ParamModule
 
             if (metadata is not null && metadata.TryGetValue(name, out var meta))
             {
-                var info = FormatValueInfo(meta, current);
-                if (info is not null)
-                    line += $" # {info}";
+                var currentInfo = FormatValueInfo(meta, current);
+                var defaultInfo = FormatValueInfo(meta, defaultValue);
+                if (currentInfo is not null && defaultInfo is not null)
+                    line += $" # {currentInfo} (was {defaultInfo})";
+                else if (currentInfo is not null)
+                    line += $" # {currentInfo}";
             }
 
             ctx.Output.WriteLine(line);
@@ -668,13 +732,8 @@ public sealed class ParamModule
         return Task.CompletedTask;
     }
 
-    private static string FormatValue(double value)
-    {
-        // Display integers without trailing decimals.
-        if (value == Math.Truncate(value) && !double.IsInfinity(value))
-            return ((long)value).ToString();
-        return value.ToString("G7");
-    }
+    private static string FormatValue(double value) =>
+        value.ToString("F6", CultureInfo.InvariantCulture);
 
     private static string? FormatValueInfo(ParamMetadata meta, double value)
     {
@@ -722,5 +781,72 @@ public sealed class ParamModule
     private sealed class SyncProgress<T>(Action<T> handler) : IProgress<T>
     {
         public void Report(T value) => handler(value);
+    }
+
+    /// <summary>
+    /// Compares strings with natural numeric ordering (SERVO1 before SERVO10).
+    /// </summary>
+    private sealed class NaturalComparer : IComparer<string>
+    {
+        public static readonly NaturalComparer Instance = new();
+
+        public int Compare(string? x, string? y)
+        {
+            if (ReferenceEquals(x, y))
+                return 0;
+            if (x is null)
+                return -1;
+            if (y is null)
+                return 1;
+
+            int ix = 0,
+                iy = 0;
+
+            while (ix < x.Length && iy < y.Length)
+            {
+                if (char.IsDigit(x[ix]) && char.IsDigit(y[iy]))
+                {
+                    // Skip leading zeros within the numeric segment.
+                    int sx = ix,
+                        sy = iy;
+                    while (sx < x.Length && x[sx] == '0')
+                        sx++;
+                    while (sy < y.Length && y[sy] == '0')
+                        sy++;
+
+                    int ex = sx,
+                        ey = sy;
+                    while (ex < x.Length && char.IsDigit(x[ex]))
+                        ex++;
+                    while (ey < y.Length && char.IsDigit(y[ey]))
+                        ey++;
+
+                    // Longer significant digit span = larger number.
+                    int lenDiff = (ex - sx) - (ey - sy);
+                    if (lenDiff != 0)
+                        return lenDiff;
+
+                    // Same length: compare digits lexicographically.
+                    for (int i = sx, j = sy; i < ex; i++, j++)
+                    {
+                        if (x[i] != y[j])
+                            return x[i].CompareTo(y[j]);
+                    }
+
+                    ix = ex;
+                    iy = ey;
+                }
+                else
+                {
+                    int cmp = char.ToUpperInvariant(x[ix]).CompareTo(char.ToUpperInvariant(y[iy]));
+                    if (cmp != 0)
+                        return cmp;
+                    ix++;
+                    iy++;
+                }
+            }
+
+            return x.Length.CompareTo(y.Length);
+        }
     }
 }
