@@ -37,7 +37,7 @@ public sealed class ModeModule
             var modes = vehicle.AvailableModes;
             ctx.Output.WriteLine(
                 modes.Count > 0
-                    ? $"Available modes: {string.Join(", ", modes.Keys)}"
+                    ? $"Available modes: {string.Join(", ", modes.Values)}"
                     : "No mode mapping available"
             );
             return;
@@ -45,7 +45,11 @@ public sealed class ModeModule
 
         // Join args to handle mode names with spaces (e.g., "ALT HOLD").
         var modeName = string.Join(' ', args);
-        var modeNum = vehicle.NameToMode(modeName);
+
+        // Accept numeric mode numbers (e.g., "mode 5").
+        uint? modeNum = uint.TryParse(modeName, out var numeric)
+            ? numeric
+            : vehicle.NameToMode(modeName);
 
         if (modeNum is null)
         {
