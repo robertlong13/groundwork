@@ -16,15 +16,22 @@ namespace Groundwork.Console.Commands;
 /// Provides RC channel override commands matching MAVProxy's rc module.
 /// </summary>
 /// <remarks>
-/// Active overrides are sent at 10 Hz. Set pwm to 0 to release a channel.
+/// Active overrides are sent at 10 Hz. After clearing, zeros are sent for
+/// an additional flush period to ensure the vehicle receives the release.
 /// </remarks>
 public sealed class RcModule
 {
+    /// <summary>
+    /// Number of extra zero-packets sent after clearing to ensure release on lossy links.
+    /// </summary>
+    private const int FlushTicks = 10;
+
     private readonly Dictionary<int, ushort> _overrides = new();
     private readonly Lock _lock = new();
     private readonly CancellationToken _appShutdown;
     private CancellationTokenSource? _senderCts;
     private Task? _senderTask;
+    private int _flushRemaining;
 
     public RcModule(CancellationToken appShutdown)
     {
@@ -36,7 +43,7 @@ public sealed class RcModule
         commands.Register(
             "rc",
             new DelegateCommand(
-                "Set RC channel override (0 to release)",
+                "Set RC channel override (0 to release, -1 to ignore)",
                 "rc <channel> <pwm>",
                 RcAsync
             )
@@ -55,14 +62,16 @@ public sealed class RcModule
 
     private async Task RcAsync(string[] args, CommandContext ctx)
     {
-        if (
-            args.Length < 2
-            || !int.TryParse(args[0], out var channel)
-            || !ushort.TryParse(args[1], out var pwm)
-        )
+        if (args.Length < 2 || !int.TryParse(args[0], out var channel))
         {
-            ctx.Output.WriteLine("Usage: rc <channel 1-18> <pwm> (0 to release)");
+            ctx.Output.WriteLine("Usage: rc <channel 1-18> <pwm> (0 to release, -1 to ignore)");
             PrintActiveOverrides(ctx.Output);
+            return;
+        }
+
+        if (!TryParsePwm(args[1], out var pwm))
+        {
+            ctx.Output.WriteLine($"Invalid PWM value: {args[1]}");
             return;
         }
 
@@ -79,7 +88,7 @@ public sealed class RcModule
             return;
         }
 
-        Task? toAwait = null;
+        MAVLink.mavlink_rc_channels_override_t msg;
 
         lock (_lock)
         {
@@ -94,19 +103,17 @@ public sealed class RcModule
                 ctx.Output.WriteLine($"RC {channel} = {pwm}");
             }
 
-            if (_overrides.Count > 0 && _senderTask is null)
-                StartSender(ctx);
-            else if (_overrides.Count == 0)
-                toAwait = StopSender();
+            _flushRemaining = FlushTicks;
+            EnsureSenderRunning(ctx);
+            msg = RcOverride.BuildMessage(vehicle.SysId, _overrides);
         }
 
-        if (toAwait is not null)
-            await toAwait.ConfigureAwait(false);
+        await SendQuietly(vehicle, msg, ctx.ShutdownToken).ConfigureAwait(false);
     }
 
     private async Task RcAllAsync(string[] args, CommandContext ctx)
     {
-        if (args.Length < 1 || !ushort.TryParse(args[0], out var pwm))
+        if (!TryParsePwm(args.Length > 0 ? args[0] : "", out var pwm))
         {
             ctx.Output.WriteLine("Usage: rc all <pwm> (0 to release all)");
             return;
@@ -119,14 +126,13 @@ public sealed class RcModule
             return;
         }
 
-        Task? toAwait = null;
+        MAVLink.mavlink_rc_channels_override_t msg;
 
         lock (_lock)
         {
             if (pwm == 0)
             {
                 _overrides.Clear();
-                toAwait = StopSender();
                 ctx.Output.WriteLine("All RC channels released");
             }
             else
@@ -135,30 +141,37 @@ public sealed class RcModule
                     _overrides[ch] = pwm;
 
                 ctx.Output.WriteLine($"All RC channels = {pwm}");
-
-                if (_senderTask is null)
-                    StartSender(ctx);
             }
+
+            _flushRemaining = FlushTicks;
+            EnsureSenderRunning(ctx);
+            msg = RcOverride.BuildMessage(vehicle.SysId, _overrides);
         }
 
-        if (toAwait is not null)
-            await toAwait.ConfigureAwait(false);
+        await SendQuietly(vehicle, msg, ctx.ShutdownToken).ConfigureAwait(false);
     }
 
     private async Task RcClearAsync(string[] args, CommandContext ctx)
     {
-        Task? toAwait;
+        var vehicle = ctx.CurrentVehicle;
+
+        MAVLink.mavlink_rc_channels_override_t? msg = null;
 
         lock (_lock)
         {
             _overrides.Clear();
-            toAwait = StopSender();
+            _flushRemaining = FlushTicks;
+            if (vehicle is not null)
+            {
+                EnsureSenderRunning(ctx);
+                msg = RcOverride.BuildMessage(vehicle.SysId, _overrides);
+            }
         }
 
         ctx.Output.WriteLine("All RC channels released");
 
-        if (toAwait is not null)
-            await toAwait.ConfigureAwait(false);
+        if (msg.HasValue && vehicle is not null)
+            await SendQuietly(vehicle, msg.Value, ctx.ShutdownToken).ConfigureAwait(false);
     }
 
     private void PrintActiveOverrides(TextWriter output)
@@ -176,27 +189,38 @@ public sealed class RcModule
         }
     }
 
-    private void StartSender(CommandContext ctx)
+    /// <summary>
+    /// Parses a PWM value, mapping -1 to 65535 (the RC_CHANNELS_OVERRIDE ignore sentinel).
+    /// </summary>
+    private static bool TryParsePwm(string text, out ushort pwm)
     {
-        _senderCts = CancellationTokenSource.CreateLinkedTokenSource(_appShutdown);
-        _senderTask = RunSenderAsync(ctx, _senderCts.Token);
+        if (int.TryParse(text, out var raw))
+        {
+            if (raw == -1)
+                raw = 65535;
+
+            if (raw >= 0 && raw <= 65535)
+            {
+                pwm = (ushort)raw;
+                return true;
+            }
+        }
+
+        pwm = 0;
+        return false;
     }
 
-    private Task? StopSender()
+    /// <summary>
+    /// Starts the sender if it is not already running. Must be called under <see cref="_lock"/>.
+    /// </summary>
+    private void EnsureSenderRunning(CommandContext ctx)
     {
-        var task = _senderTask;
-        var oldCts = _senderCts;
-        _senderCts?.Cancel();
-        _senderCts = null;
-        _senderTask = null;
+        if (_senderTask is not null && !_senderTask.IsCompleted)
+            return;
 
-        // Dispose after the sender exits; disposing while it's still awaiting
-        // WaitForNextTickAsync causes ObjectDisposedException.
-        if (task is not null && oldCts is not null)
-            return task.ContinueWith(_ => oldCts.Dispose(), TaskScheduler.Default);
-
-        oldCts?.Dispose();
-        return task;
+        _senderCts?.Dispose();
+        _senderCts = CancellationTokenSource.CreateLinkedTokenSource(_appShutdown);
+        _senderTask = RunSenderAsync(ctx, _senderCts.Token);
     }
 
     private async Task RunSenderAsync(CommandContext ctx, CancellationToken ct)
@@ -214,31 +238,43 @@ public sealed class RcModule
                 MAVLink.mavlink_rc_channels_override_t msg;
                 lock (_lock)
                 {
-                    if (_overrides.Count == 0)
-                        break; // No overrides left.
+                    if (_overrides.Count == 0 && _flushRemaining <= 0)
+                        break;
 
                     msg = RcOverride.BuildMessage(vehicle.SysId, _overrides);
+
+                    if (_overrides.Count == 0)
+                        _flushRemaining--;
                 }
 
-                try
-                {
-                    await vehicle
-                        .SendAsync(MAVLink.MAVLINK_MSG_ID.RC_CHANNELS_OVERRIDE, msg, ct)
-                        .ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch
-                {
-                    // Send failure -- retry on next tick.
-                }
+                await SendQuietly(vehicle, msg, ct).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException)
         {
-            // Expected on shutdown or StopSender.
+            // Expected on shutdown.
+        }
+    }
+
+    private static async Task SendQuietly(
+        Groundwork.Core.Vehicles.Vehicle vehicle,
+        MAVLink.mavlink_rc_channels_override_t msg,
+        CancellationToken ct
+    )
+    {
+        try
+        {
+            await vehicle
+                .SendAsync(MAVLink.MAVLINK_MSG_ID.RC_CHANNELS_OVERRIDE, msg, ct)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            // Send failure -- will retry on next tick.
         }
     }
 }
