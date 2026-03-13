@@ -129,9 +129,10 @@ public sealed class ArmModule
             return;
         }
 
+        // MAVProxy disarms to component 0 (all components), not just the autopilot.
         var result = arm
             ? await vehicle.ArmAsync(force, ctx.ShutdownToken)
-            : await vehicle.DisarmAsync(force, ctx.ShutdownToken);
+            : await vehicle.DisarmAsync(force, targetComponent: 0, ctx.ShutdownToken);
 
         var verb = arm ? "Arm" : "Disarm";
         ctx.Output.WriteLine(
