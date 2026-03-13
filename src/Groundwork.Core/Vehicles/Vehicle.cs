@@ -164,17 +164,20 @@ public class Vehicle
     /// Disarms the vehicle.
     /// </summary>
     /// <param name="force">Force disarm even in flight.</param>
+    /// <param name="targetComponent">Target component. Defaults to autopilot.</param>
     /// <returns>The <see cref="MAVLink.MAV_RESULT"/> from the ACK.</returns>
     /// <exception cref="InvalidOperationException">No channel available.</exception>
     /// <exception cref="TimeoutException">No ACK within timeout.</exception>
     public Task<MAVLink.MAV_RESULT> DisarmAsync(
         bool force = false,
+        byte? targetComponent = null,
         CancellationToken ct = default
     ) =>
         SendCommandAsync(
             MAVLink.MAV_CMD.COMPONENT_ARM_DISARM,
             param1: 0f,
             param2: force ? 21196f : 0f,
+            targetComponent: targetComponent,
             ct: ct
         );
 
@@ -349,6 +352,7 @@ public class Vehicle
         float param5 = 0,
         float param6 = 0,
         float param7 = 0,
+        byte? targetComponent = null,
         TimeSpan? timeout = null,
         CancellationToken ct = default
     )
@@ -357,7 +361,7 @@ public class Vehicle
 
         return channel.SendCommandAsync(
             SysId,
-            (byte)MAVLink.MAV_COMPONENT.MAV_COMP_ID_AUTOPILOT1,
+            targetComponent ?? (byte)MAVLink.MAV_COMPONENT.MAV_COMP_ID_AUTOPILOT1,
             command,
             param1,
             param2,
