@@ -114,6 +114,51 @@ public class VehicleTests
         pipe.Writer.Complete();
     }
 
+    [Theory]
+    [InlineData(null, (byte)MAVLink.MAV_COMPONENT.MAV_COMP_ID_AUTOPILOT1)]
+    [InlineData((byte)0, (byte)0)]
+    [InlineData((byte)1, (byte)1)]
+    public async Task SendCommandAsync_TargetComponent_FlowsToWire(
+        byte? targetComponent,
+        byte expectedComponent
+    )
+    {
+        var pipe = new Pipe();
+        var connection = new CapturingConnection(pipe);
+        var registry = new VehicleRegistry();
+        using var channel = new MavChannel(connection, registry, NullLoggerFactory.Instance);
+
+        var vehicle = new Vehicle(
+            uid: 1,
+            sysId: SysId,
+            channel: channel,
+            loggerFactory: NullLoggerFactory.Instance
+        );
+
+        // Start the command -- it will timeout waiting for an ACK, but we
+        // only care about the outgoing packet content.
+        var cmdTask = vehicle.SendCommandAsync(
+            MAVLink.MAV_CMD.COMPONENT_ARM_DISARM,
+            param1: 0f,
+            targetComponent: targetComponent,
+            timeout: TimeSpan.FromMilliseconds(200)
+        );
+
+        await Assert.ThrowsAsync<TimeoutException>(() => cmdTask);
+
+        // Parse the captured outgoing COMMAND_LONG.
+        Assert.Single(connection.SentPackets);
+        using var ms = new MemoryStream(connection.SentPackets[0]);
+        var parsed = new MAVLink.MavlinkParse().ReadPacket(ms);
+        Assert.NotNull(parsed);
+
+        var cmd = parsed.ToStructure<MAVLink.mavlink_command_long_t>();
+        Assert.Equal(expectedComponent, cmd.target_component);
+        Assert.Equal((ushort)MAVLink.MAV_CMD.COMPONENT_ARM_DISARM, cmd.command);
+
+        pipe.Writer.Complete();
+    }
+
     private static byte[] EncodeParamId(string name)
     {
         var id = new byte[16];
@@ -136,6 +181,34 @@ public class VehicleTests
 
         public Task SendAsync(ReadOnlyMemory<byte> data, CancellationToken ct = default) =>
             Task.CompletedTask;
+
+        public ValueTask DisposeAsync()
+        {
+            pipe.Writer.Complete();
+            pipe.Reader.Complete();
+            return default;
+        }
+    }
+
+    private sealed class CapturingConnection(Pipe pipe) : IConnection
+    {
+        public string Name => "Capturing";
+        public Stream BaseStream => pipe.Reader.AsStream();
+        public List<byte[]> SentPackets { get; } = [];
+
+        public Task OpenAsync(CancellationToken ct = default) => Task.CompletedTask;
+
+        public Task CloseAsync(CancellationToken ct = default)
+        {
+            pipe.Writer.Complete();
+            return Task.CompletedTask;
+        }
+
+        public Task SendAsync(ReadOnlyMemory<byte> data, CancellationToken ct = default)
+        {
+            SentPackets.Add(data.ToArray());
+            return Task.CompletedTask;
+        }
 
         public ValueTask DisposeAsync()
         {
