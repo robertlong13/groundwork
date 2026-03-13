@@ -17,20 +17,14 @@ namespace Groundwork.Core.ArduPilot;
 /// </summary>
 public static class ModeMap
 {
+    /// <summary>Normalized name to mode number, for flexible input matching.</summary>
     private static readonly Dictionary<FirmwareFamily, Dictionary<string, uint>> NameToNum;
+
+    /// <summary>Mode number to canonical display name.</summary>
     private static readonly Dictionary<FirmwareFamily, Dictionary<uint, string>> NumToName;
 
     static ModeMap()
     {
-        NameToNum = new Dictionary<FirmwareFamily, Dictionary<string, uint>>
-        {
-            [FirmwareFamily.Copter] = BuildNameToNum<MAVLink.COPTER_MODE>(),
-            [FirmwareFamily.Plane] = BuildNameToNum<MAVLink.PLANE_MODE>(),
-            [FirmwareFamily.Rover] = BuildNameToNum<MAVLink.ROVER_MODE>(),
-            [FirmwareFamily.Tracker] = BuildNameToNum<MAVLink.TRACKER_MODE>(),
-            [FirmwareFamily.Sub] = BuildNameToNum<MAVLink.SUB_MODE>(),
-        };
-
         NumToName = new Dictionary<FirmwareFamily, Dictionary<uint, string>>
         {
             [FirmwareFamily.Copter] = BuildNumToName<MAVLink.COPTER_MODE>(),
@@ -39,18 +33,32 @@ public static class ModeMap
             [FirmwareFamily.Tracker] = BuildNumToName<MAVLink.TRACKER_MODE>(),
             [FirmwareFamily.Sub] = BuildNumToName<MAVLink.SUB_MODE>(),
         };
+
+        NameToNum = new Dictionary<FirmwareFamily, Dictionary<string, uint>>();
+
+        foreach (var (family, modes) in NumToName)
+        {
+            var nameToNum = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (mode, name) in modes)
+                nameToNum.TryAdd(Normalize(name), mode);
+            NameToNum[family] = nameToNum;
+        }
     }
 
     /// <summary>
     /// Returns the custom_mode number for a mode name.
     /// </summary>
+    /// <remarks>
+    /// Accepts canonical names ("ALT HOLD"), underscored ("ALT_HOLD"), and
+    /// collapsed ("AltHold", "althold") forms via case-insensitive normalized lookup.
+    /// </remarks>
     public static uint? NameToMode(string name, MAVLink.MAV_TYPE vehicleType)
     {
         var family = FirmwareFamilyMap.FromMavType(vehicleType);
         if (family is null)
             return null;
 
-        return NameToNum[family.Value].TryGetValue(name, out var mode) ? mode : null;
+        return NameToNum[family.Value].TryGetValue(Normalize(name), out var mode) ? mode : null;
     }
 
     /// <summary>
@@ -68,32 +76,19 @@ public static class ModeMap
     }
 
     /// <summary>
-    /// Gets all known modes for a vehicle type.
+    /// Gets all known modes for a vehicle type, keyed by mode number with canonical display names.
     /// </summary>
-    public static IReadOnlyDictionary<string, uint> GetModes(MAVLink.MAV_TYPE vehicleType)
+    public static IReadOnlyDictionary<uint, string> GetModes(MAVLink.MAV_TYPE vehicleType)
     {
         var family = FirmwareFamilyMap.FromMavType(vehicleType);
         if (family is null)
-            return new Dictionary<string, uint>();
+            return new Dictionary<uint, string>();
 
-        return NameToNum[family.Value];
+        return NumToName[family.Value];
     }
 
-    private static Dictionary<string, uint> BuildNameToNum<TEnum>()
-        where TEnum : struct, Enum
-    {
-        var dict = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var field in typeof(TEnum).GetFields(BindingFlags.Public | BindingFlags.Static))
-        {
-            var desc = field.GetCustomAttribute<MAVLink.Description>();
-            var name = desc?.Text ?? field.Name;
-            var value = (uint)(int)field.GetRawConstantValue()!;
-            dict[name] = value;
-        }
-
-        return dict;
-    }
+    private static string Normalize(string name) =>
+        name.Replace(" ", "").Replace("_", "").Replace("-", "");
 
     private static Dictionary<uint, string> BuildNumToName<TEnum>()
         where TEnum : struct, Enum

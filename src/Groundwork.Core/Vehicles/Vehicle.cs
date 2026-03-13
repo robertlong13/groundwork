@@ -139,9 +139,9 @@ public class Vehicle
     public IReadOnlyDictionary<string, ParamMetadata>? ParameterMetadata { get; set; }
 
     /// <summary>
-    /// Gets the available mode names and their custom_mode numbers for this vehicle type.
+    /// Gets the available modes for this vehicle type, keyed by custom_mode number.
     /// </summary>
-    public IReadOnlyDictionary<string, uint> AvailableModes =>
+    public IReadOnlyDictionary<uint, string> AvailableModes =>
         ArduPilot.ModeMap.GetModes(CanonicalState.Type);
 
     /// <summary>

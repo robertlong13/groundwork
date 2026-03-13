@@ -96,6 +96,17 @@ public class ModeMapTests
         Assert.Equal(4u, ModeMap.NameToMode(name, MAVLink.MAV_TYPE.QUADROTOR));
     }
 
+    [Theory]
+    [InlineData("ALT_HOLD")]
+    [InlineData("ALT HOLD")]
+    [InlineData("AltHold")]
+    [InlineData("althold")]
+    [InlineData("alt-hold")]
+    public void NameToMode_NormalizedForms(string name)
+    {
+        Assert.Equal(2u, ModeMap.NameToMode(name, MAVLink.MAV_TYPE.QUADROTOR));
+    }
+
     [Fact]
     public void NameToMode_UnknownName_ReturnsNull()
     {
@@ -117,6 +128,25 @@ public class ModeMapTests
 
         Assert.Equal(5u, copter);
         Assert.Equal(12u, plane);
+    }
+
+    // -- GetModes --
+
+    [Fact]
+    public void GetModes_ReturnsCanonicalNames()
+    {
+        var modes = ModeMap.GetModes(MAVLink.MAV_TYPE.QUADROTOR);
+
+        Assert.Equal("ALT HOLD", modes[2u]);
+        Assert.Equal("STABILIZE", modes[0u]);
+    }
+
+    [Fact]
+    public void GetModes_UnmappedType_ReturnsEmpty()
+    {
+        var modes = ModeMap.GetModes(MAVLink.MAV_TYPE.GCS);
+
+        Assert.Empty(modes);
     }
 
     // -- Vehicle type -> firmware type mapping --
