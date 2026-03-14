@@ -104,7 +104,11 @@ public class VehicleTests
 
         await pipe.Writer.WriteAsync(packet);
         await pipe.Writer.FlushAsync();
-        await Task.Delay(50);
+
+        // Poll until the parse loop processes the packet (CI runners can be slow).
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        while (!vehicle.Parameters.ContainsKey("STAT_RUNTIME"))
+            await Task.Delay(10, timeout.Token);
 
         Assert.True(vehicle.Parameters.ContainsKey("STAT_RUNTIME"));
         Assert.Equal(12345f, vehicle.Parameters["STAT_RUNTIME"].Value);
