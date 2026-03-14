@@ -355,9 +355,9 @@ public sealed class MavChannel : IDisposable
             // Expected on shutdown.
         }
 
+        _parser.Dispose();
         _parserSubscription.Dispose();
         _messages.Dispose();
-        _parser.Dispose();
         _cts.Dispose();
     }
 
