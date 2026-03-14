@@ -337,7 +337,49 @@ public sealed class ParamModule
         if (args.Length == 0)
             return FetchAllAsync(v => v.DownloadParametersAsync, ctx);
 
+        // Wildcard: expand against cached params and fetch each match.
+        if (args[0].Contains('*'))
+            return FetchWildcardAsync(args[0], ctx);
+
         return FetchOneAsync(args[0], ctx);
+    }
+
+    private static async Task FetchWildcardAsync(string pattern, CommandContext ctx)
+    {
+        var vehicle = ctx.CurrentVehicle;
+        if (vehicle is null)
+        {
+            ctx.Output.WriteLine("No vehicle connected");
+            return;
+        }
+
+        var matches = vehicle
+            .Parameters.Keys.Where(k => ParamFile.MatchesWildcard(k, pattern))
+            .OrderBy(k => k, NaturalComparer.Instance)
+            .ToList();
+
+        if (matches.Count == 0)
+        {
+            ctx.Output.WriteLine($"No parameters matching '{pattern}'");
+            return;
+        }
+
+        foreach (var name in matches)
+        {
+            try
+            {
+                var value = await vehicle.FetchParameterAsync(name, ctx.ShutdownToken);
+                ctx.Output.WriteLine($"{name} = {FormatValue(value)}");
+            }
+            catch (ParameterException ex)
+            {
+                ctx.Output.WriteLine($"Fetch {name} failed: {ex.Message}");
+            }
+            catch (TimeoutException)
+            {
+                ctx.Output.WriteLine($"Fetch timed out for '{name}'");
+            }
+        }
     }
 
     private static async Task FetchOneAsync(string name, CommandContext ctx)
