@@ -455,14 +455,15 @@ def _scrape_dispatch_patterns(body: str) -> set[str]:
 
 _REGISTER_RE = re.compile(r"""\.Register\(\s*"([^"]+)"\s*,""")
 
-# Match "new SomeCommand(" to extract the class name
-_NEW_CMD_RE = re.compile(r"""new\s+(\w+)\s*\(""")
+# Match "class FooModule" or "class FooCommand" declarations.
+_CLASS_RE = re.compile(r"""(?:^|\n)\s*(?:public\s+)?(?:sealed\s+)?class\s+(\w+)""")
 
 
 def parse_groundwork(groundwork_root: Path) -> dict[str, tuple[str, str]]:
     """Scan .cs files for commands.Register("...", ...) calls.
 
-    Returns dict mapping command string to (relative_file, class_name).
+    Returns dict mapping command string to (relative_file, module_name).
+    The module_name is the enclosing class that contains the Register call.
     """
     src_dir = groundwork_root / "src"
     if not src_dir.is_dir():
@@ -476,13 +477,20 @@ def parse_groundwork(groundwork_root: Path) -> dict[str, tuple[str, str]]:
         except (OSError, UnicodeDecodeError):
             continue
         rel_path = cs_file.relative_to(groundwork_root).as_posix()
+
+        # Find all class declarations and their positions
+        classes = [(m.start(), m.group(1)) for m in _CLASS_RE.finditer(text)]
+
         for m in _REGISTER_RE.finditer(text):
             cmd_name = m.group(1)
-            # Try to extract class name from the rest of the line
-            rest = text[m.end() : m.end() + 100]
-            cls_match = _NEW_CMD_RE.search(rest)
-            cls_name = cls_match.group(1) if cls_match else ""
-            commands[cmd_name] = (rel_path, cls_name)
+            # Find the enclosing class: last class declared before this position
+            enclosing = ""
+            for cls_pos, cls_name in classes:
+                if cls_pos < m.start():
+                    enclosing = cls_name
+                else:
+                    break
+            commands[cmd_name] = (rel_path, enclosing)
 
     return commands
 
@@ -759,7 +767,7 @@ def format_directory_rich(covered: list[TrackableItem], gw_only: list[Groundwork
         table = Table(show_header=True, header_style="bold", box=None, pad_edge=False)
         table.add_column("Command", style="cyan")
         table.add_column("MAVProxy Module")
-        table.add_column("Groundwork Class", style="green")
+        table.add_column("Groundwork Module", style="green")
 
         for item in covered:
             table.add_row(item.name, item.module_name, item.gw_class)
@@ -772,7 +780,7 @@ def format_directory_rich(covered: list[TrackableItem], gw_only: list[Groundwork
 
         table = Table(show_header=True, header_style="bold", box=None, pad_edge=False)
         table.add_column("Command", style="cyan")
-        table.add_column("Groundwork Class", style="green")
+        table.add_column("Groundwork Module", style="green")
 
         for item in gw_only:
             table.add_row(item.name, item.gw_class)
@@ -793,7 +801,7 @@ def format_directory_plain(covered: list[TrackableItem], gw_only: list[Groundwor
         lines.append("")
         lines.append("  MAVProxy Parity")
         lines.append(f"  {'-' * 16}")
-        lines.append(f"  {'Command':<30} {'Module':<16} {'GW Class'}")
+        lines.append(f"  {'Command':<30} {'Module':<16} {'GW Module'}")
         lines.append(f"  {'-' * 30} {'-' * 16} {'-' * 20}")
         for item in covered:
             lines.append(f"  {item.name:<30} {item.module_name:<16} {item.gw_class}")
@@ -802,7 +810,7 @@ def format_directory_plain(covered: list[TrackableItem], gw_only: list[Groundwor
         lines.append("")
         lines.append("  Groundwork Only")
         lines.append(f"  {'-' * 16}")
-        lines.append(f"  {'Command':<30} {'GW Class'}")
+        lines.append(f"  {'Command':<30} {'GW Module'}")
         lines.append(f"  {'-' * 30} {'-' * 20}")
         for item in gw_only:
             lines.append(f"  {item.name:<30} {item.gw_class}")
