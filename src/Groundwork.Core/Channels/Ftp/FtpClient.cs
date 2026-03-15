@@ -161,6 +161,107 @@ public sealed class FtpClient
         return buffer[..fileSize];
     }
 
+    /// <summary>
+    /// Uploads a file to the autopilot via MAVFtp.
+    /// </summary>
+    /// <param name="remotePath">The remote file path on the autopilot.</param>
+    /// <param name="data">The file contents to upload.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <exception cref="IOException">FTP protocol error or NAK.</exception>
+    public async Task UploadFileAsync(
+        string remotePath,
+        byte[] data,
+        CancellationToken ct = default
+    )
+    {
+        var ftpResponses = _channel
+            .Messages.Where(m =>
+                m.msgid == (uint)MAVLink.MAVLINK_MSG_ID.FILE_TRANSFER_PROTOCOL
+                && m.sysid == _targetSysId
+            )
+            .Select(m =>
+            {
+                var ftp = m.ToStructure<MAVLink.mavlink_file_transfer_protocol_t>();
+                return FtpPayload.Unpack(ftp.payload);
+            });
+
+        // 1. Reset sessions.
+        await ResetSessionsAsync(ftpResponses, ct).ConfigureAwait(false);
+
+        // 2. Create file.
+        var pathBytes = FtpPayload.EncodePath(remotePath);
+        var createResp = await SendWithRetryAsync(
+                ftpResponses,
+                MAVLink.MAV_FTP_OPCODE.CREATEFILE,
+                r => r.ReqOpcode == MAVLink.MAV_FTP_OPCODE.CREATEFILE,
+                () =>
+                    SendFtpAsync(
+                        MAVLink.MAV_FTP_OPCODE.CREATEFILE,
+                        0,
+                        (byte)pathBytes.Length,
+                        0,
+                        pathBytes,
+                        ct
+                    ),
+                ct,
+                perAttemptTimeout: TimeSpan.FromSeconds(5)
+            )
+            .ConfigureAwait(false);
+
+        if (createResp.IsNak)
+            throw new IOException($"FTP CreateFile NAK: {createResp.NakError}");
+
+        var session = createResp.Session;
+
+        _logger.LogDebug("FTP: created {Path}, session={Session}", remotePath, session);
+
+        // 3. Write data in chunks.
+        var offset = 0;
+        while (offset < data.Length)
+        {
+            var chunkSize = Math.Min(FtpPayload.MaxDataLength, data.Length - offset);
+            var chunk = data.AsSpan(offset, chunkSize).ToArray();
+
+            var writeResp = await SendWithRetryAsync(
+                    ftpResponses,
+                    MAVLink.MAV_FTP_OPCODE.WRITEFILE,
+                    r =>
+                        r.ReqOpcode == MAVLink.MAV_FTP_OPCODE.WRITEFILE && r.Offset == (uint)offset,
+                    () =>
+                        SendFtpAsync(
+                            MAVLink.MAV_FTP_OPCODE.WRITEFILE,
+                            session,
+                            (byte)chunkSize,
+                            (uint)offset,
+                            chunk,
+                            ct
+                        ),
+                    ct
+                )
+                .ConfigureAwait(false);
+
+            if (writeResp.IsNak)
+                throw new IOException(
+                    $"FTP WriteFile NAK at offset {offset}: {writeResp.NakError}"
+                );
+
+            offset += chunkSize;
+        }
+
+        // 4. Terminate session.
+        try
+        {
+            await TerminateSessionAsync(ftpResponses, session, CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "FTP: terminate session failed (non-fatal)");
+        }
+
+        _logger.LogDebug("FTP: upload complete, {Size} bytes", data.Length);
+    }
+
     private async Task ResetSessionsAsync(IObservable<FtpResponse> responses, CancellationToken ct)
     {
         var resp = await SendWithRetryAsync(
