@@ -10,6 +10,7 @@
 
 using System.Buffers.Binary;
 using System.Reactive.Linq;
+using System.Reactive.Threading.Tasks;
 using System.Security.Cryptography;
 using Groundwork.Core.Channels;
 using Microsoft.Extensions.Logging;
@@ -24,9 +25,14 @@ public class Vehicle
 {
     private readonly HashSet<MavChannel> _channels = new();
     private readonly Dictionary<MavChannel, IDisposable> _paramSubs = new();
+    private readonly Dictionary<MavChannel, IDisposable> _missionSubs = new();
+    private readonly Dictionary<MavChannel, IDisposable> _homeSubs = new();
     private readonly Dictionary<string, ParamEntry> _parameters = new(
         StringComparer.OrdinalIgnoreCase
     );
+    private List<MissionItem> _mission = [];
+    private List<MissionItem> _fence = [];
+    private List<MissionItem> _rally = [];
     private readonly ILogger _logger;
     private readonly Lock _lock = new();
     private readonly ArduPilot.ParamMetadataFetcher? _metadataFetcher;
@@ -143,6 +149,75 @@ public class Vehicle
     /// </summary>
     public IReadOnlyDictionary<uint, string> AvailableModes =>
         ArduPilot.ModeMap.GetModes(CanonicalState.Type);
+
+    /// <summary>
+    /// Gets the cached mission items, populated by download operations.
+    /// </summary>
+    public IReadOnlyList<MissionItem> Mission
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _mission.ToList();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets the cached fence items, populated by download operations.
+    /// </summary>
+    public IReadOnlyList<MissionItem> Fence
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _fence.ToList();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets the cached rally items, populated by download operations.
+    /// </summary>
+    public IReadOnlyList<MissionItem> Rally
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _rally.ToList();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets the sequence number of the currently active mission item,
+    /// as last reported by MISSION_CURRENT.
+    /// </summary>
+    public ushort CurrentMissionSeq { get; private set; }
+
+    /// <summary>
+    /// Gets the mission state as last reported by MISSION_CURRENT.
+    /// </summary>
+    public MAVLink.MISSION_STATE MissionState { get; private set; }
+
+    /// <summary>
+    /// Gets the home position latitude in degrees, from HOME_POSITION
+    /// messages or downloaded mission seq 0.
+    /// </summary>
+    public double HomeLatitude { get; private set; }
+
+    /// <summary>
+    /// Gets the home position longitude in degrees.
+    /// </summary>
+    public double HomeLongitude { get; private set; }
+
+    /// <summary>
+    /// Gets the home position altitude in meters MSL.
+    /// </summary>
+    public float HomeAltitude { get; private set; }
 
     /// <summary>
     /// Arms the vehicle.
@@ -265,7 +340,215 @@ public class Vehicle
     }
 
     /// <summary>
-    /// Downloads all parameters, selecting FTP or legacy based on vehicle capabilities.
+    /// Downloads mission items, selecting FTP or standard protocol based on vehicle capabilities.
+    /// </summary>
+    public Task<IReadOnlyList<MissionItem>> DownloadMissionAsync(
+        IProgress<MissionTransferProgress>? progress = null,
+        CancellationToken ct = default
+    )
+    {
+        var hasFtp =
+            CanonicalState is { } state
+            && state.Capabilities.HasFlag(MAVLink.MAV_PROTOCOL_CAPABILITY.FTP);
+
+        return hasFtp
+            ? DownloadMissionViaFtpAsync(progress, ct)
+            : DownloadMissionViaProtocolAsync(progress, ct);
+    }
+
+    /// <summary>
+    /// Uploads mission items, selecting FTP or standard protocol based on vehicle capabilities.
+    /// </summary>
+    public Task UploadMissionAsync(
+        IReadOnlyList<MissionItem> items,
+        IProgress<MissionTransferProgress>? progress = null,
+        CancellationToken ct = default
+    )
+    {
+        var hasFtp =
+            CanonicalState is { } state
+            && state.Capabilities.HasFlag(MAVLink.MAV_PROTOCOL_CAPABILITY.FTP);
+
+        return hasFtp
+            ? UploadMissionViaFtpAsync(items, ct)
+            : UploadMissionViaProtocolAsync(items, progress, ct);
+    }
+
+    /// <summary>
+    /// Downloads mission items via the standard protocol.
+    /// </summary>
+    public Task<IReadOnlyList<MissionItem>> DownloadMissionViaProtocolAsync(
+        IProgress<MissionTransferProgress>? progress = null,
+        CancellationToken ct = default
+    ) => DownloadItemsViaProtocolAsync(MAVLink.MAV_MISSION_TYPE.MISSION, progress, ct);
+
+    /// <summary>
+    /// Uploads mission items via the standard protocol.
+    /// </summary>
+    public Task<MAVLink.MAV_MISSION_RESULT> UploadMissionViaProtocolAsync(
+        IReadOnlyList<MissionItem> items,
+        IProgress<MissionTransferProgress>? progress = null,
+        CancellationToken ct = default
+    ) => UploadItemsViaProtocolAsync(MAVLink.MAV_MISSION_TYPE.MISSION, items, progress, ct);
+
+    /// <summary>
+    /// Downloads the mission via FTP and populates the cache.
+    /// </summary>
+    public Task<IReadOnlyList<MissionItem>> DownloadMissionViaFtpAsync(
+        IProgress<MissionTransferProgress>? progress = null,
+        CancellationToken ct = default
+    ) => DownloadItemsViaFtpAsync(MAVLink.MAV_MISSION_TYPE.MISSION, progress, ct);
+
+    /// <summary>
+    /// Uploads mission items to the vehicle via FTP.
+    /// </summary>
+    public Task UploadMissionViaFtpAsync(
+        IReadOnlyList<MissionItem> items,
+        CancellationToken ct = default
+    ) => UploadItemsViaFtpAsync(MAVLink.MAV_MISSION_TYPE.MISSION, items, ct);
+
+    /// <summary>
+    /// Clears all mission items on the vehicle.
+    /// </summary>
+    public Task ClearMissionAsync(CancellationToken ct = default) =>
+        ClearItemsAsync(MAVLink.MAV_MISSION_TYPE.MISSION, ct);
+
+    /// <summary>
+    /// Downloads items of the specified type via the standard protocol.
+    /// </summary>
+    public async Task<IReadOnlyList<MissionItem>> DownloadItemsViaProtocolAsync(
+        MAVLink.MAV_MISSION_TYPE type,
+        IProgress<MissionTransferProgress>? progress = null,
+        CancellationToken ct = default
+    )
+    {
+        var channel = PrimaryChannel;
+        var all = await MissionDownload
+            .DownloadAsync(channel, SysId, _logger, type, progress, ct)
+            .ConfigureAwait(false);
+
+        var items = type == MAVLink.MAV_MISSION_TYPE.MISSION ? SeparateHomeFromDownload(all) : all;
+        SetItemCache(type, items);
+        return items;
+    }
+
+    /// <summary>
+    /// Uploads items of the specified type via the standard protocol.
+    /// </summary>
+    public async Task<MAVLink.MAV_MISSION_RESULT> UploadItemsViaProtocolAsync(
+        MAVLink.MAV_MISSION_TYPE type,
+        IReadOnlyList<MissionItem> items,
+        IProgress<MissionTransferProgress>? progress = null,
+        CancellationToken ct = default
+    )
+    {
+        var channel = PrimaryChannel;
+        var toSend = type == MAVLink.MAV_MISSION_TYPE.MISSION ? PrependHome(items) : items;
+        var result = await MissionUpload
+            .UploadAsync(channel, SysId, toSend, _logger, type, progress, ct)
+            .ConfigureAwait(false);
+
+        if (result == MAVLink.MAV_MISSION_RESULT.MAV_MISSION_ACCEPTED)
+            SetItemCache(type, items.ToList());
+
+        return result;
+    }
+
+    /// <summary>
+    /// Downloads items of the specified type via FTP.
+    /// </summary>
+    public async Task<IReadOnlyList<MissionItem>> DownloadItemsViaFtpAsync(
+        MAVLink.MAV_MISSION_TYPE type,
+        IProgress<MissionTransferProgress>? progress = null,
+        CancellationToken ct = default
+    )
+    {
+        var channel = PrimaryChannel;
+        var client = new Channels.Ftp.FtpClient(channel, SysId, _logger);
+
+        IProgress<(int Received, int Total)>? ftpProgress =
+            progress != null ? new FtpMissionProgressAdapter(progress) : null;
+
+        var path = FtpPathForType(type);
+        var data = await client.DownloadFileAsync(path, ftpProgress, ct).ConfigureAwait(false);
+        var all = ArduPilot.MissionDatCodec.Decode(data);
+        var items = type == MAVLink.MAV_MISSION_TYPE.MISSION ? SeparateHomeFromDownload(all) : all;
+
+        SetItemCache(type, items);
+        _logger.LogInformation("Downloaded {Count} {Type} items via FTP", items.Count, type);
+        return items;
+    }
+
+    /// <summary>
+    /// Uploads items of the specified type via FTP.
+    /// </summary>
+    public async Task UploadItemsViaFtpAsync(
+        MAVLink.MAV_MISSION_TYPE type,
+        IReadOnlyList<MissionItem> items,
+        CancellationToken ct = default
+    )
+    {
+        var channel = PrimaryChannel;
+        var client = new Channels.Ftp.FtpClient(channel, SysId, _logger);
+
+        var toSend = type == MAVLink.MAV_MISSION_TYPE.MISSION ? PrependHome(items) : items;
+        var path = FtpPathForType(type);
+        var data = ArduPilot.MissionDatCodec.Encode(toSend, type);
+        await client.UploadFileAsync(path, data, ct).ConfigureAwait(false);
+
+        SetItemCache(type, items.ToList());
+        _logger.LogInformation("Uploaded {Count} {Type} items via FTP", items.Count, type);
+    }
+
+    /// <summary>
+    /// Clears all items of the specified type on the vehicle.
+    /// </summary>
+    public async Task ClearItemsAsync(MAVLink.MAV_MISSION_TYPE type, CancellationToken ct = default)
+    {
+        var channel = PrimaryChannel;
+
+        var ackTask = channel
+            .Messages.Where(m =>
+                m.msgid == (uint)MAVLink.MAVLINK_MSG_ID.MISSION_ACK && m.sysid == SysId
+            )
+            .Select(m => m.ToStructure<MAVLink.mavlink_mission_ack_t>())
+            .Where(a => a.mission_type == (byte)type)
+            .Take(1)
+            .Timeout(TimeSpan.FromSeconds(5))
+            .ToTask(ct);
+
+        await channel
+            .SendAsync(
+                MAVLink.MAVLINK_MSG_ID.MISSION_CLEAR_ALL,
+                new MAVLink.mavlink_mission_clear_all_t
+                {
+                    target_system = SysId,
+                    target_component = (byte)MAVLink.MAV_COMPONENT.MAV_COMP_ID_AUTOPILOT1,
+                    mission_type = (byte)type,
+                },
+                ct
+            )
+            .ConfigureAwait(false);
+
+        var ack = await ackTask.ConfigureAwait(false);
+        if ((MAVLink.MAV_MISSION_RESULT)ack.type != MAVLink.MAV_MISSION_RESULT.MAV_MISSION_ACCEPTED)
+            throw new InvalidOperationException(
+                $"{type} clear rejected: {(MAVLink.MAV_MISSION_RESULT)ack.type}"
+            );
+
+        SetItemCache(type, []);
+    }
+
+    /// <summary>
+    /// Sets the current mission item on the vehicle.
+    /// </summary>
+    public Task<MAVLink.MAV_RESULT> SetCurrentMissionItemAsync(
+        ushort seq,
+        CancellationToken ct = default
+    ) => SendCommandAsync(MAVLink.MAV_CMD.DO_SET_MISSION_CURRENT, param1: seq, ct: ct);
+
+    /// <summary>
+    /// Downloads all parameters, selecting FTP or standard protocol based on vehicle capabilities.
     /// </summary>
     /// <returns>The number of parameters downloaded.</returns>
     /// <exception cref="InvalidOperationException">No channel available.</exception>
@@ -415,9 +698,35 @@ public class Vehicle
                 }
             });
 
+        var missionSub = channel
+            .Messages.Where(m =>
+                m.msgid == (uint)MAVLink.MAVLINK_MSG_ID.MISSION_CURRENT && m.sysid == SysId
+            )
+            .Select(m => m.ToStructure<MAVLink.mavlink_mission_current_t>())
+            .Subscribe(mc =>
+            {
+                CurrentMissionSeq = mc.seq;
+                if (mc.mission_state != 0)
+                    MissionState = (MAVLink.MISSION_STATE)mc.mission_state;
+            });
+
+        var homeSub = channel
+            .Messages.Where(m =>
+                m.msgid == (uint)MAVLink.MAVLINK_MSG_ID.HOME_POSITION && m.sysid == SysId
+            )
+            .Select(m => m.ToStructure<MAVLink.mavlink_home_position_t>())
+            .Subscribe(hp =>
+            {
+                HomeLatitude = hp.latitude / 1e7;
+                HomeLongitude = hp.longitude / 1e7;
+                HomeAltitude = hp.altitude / 1000f;
+            });
+
         lock (_lock)
         {
             _paramSubs[channel] = paramSub;
+            _missionSubs[channel] = missionSub;
+            _homeSubs[channel] = homeSub;
         }
 
         var vehicleMessages = channel.Messages.Where(m => m.sysid == SysId);
@@ -459,13 +768,19 @@ public class Vehicle
     internal void RemoveChannel(MavChannel channel)
     {
         IDisposable? paramSub;
+        IDisposable? missionSub;
+        IDisposable? homeSub;
         lock (_lock)
         {
             _channels.Remove(channel);
             _paramSubs.Remove(channel, out paramSub);
+            _missionSubs.Remove(channel, out missionSub);
+            _homeSubs.Remove(channel, out homeSub);
         }
 
         paramSub?.Dispose();
+        missionSub?.Dispose();
+        homeSub?.Dispose();
         RateController.RemoveChannel(channel.SendAsync);
     }
 
@@ -513,5 +828,82 @@ public class Vehicle
         Span<byte> hash = stackalloc byte[32];
         SHA256.HashData(input, hash);
         return BinaryPrimitives.ReadUInt64LittleEndian(hash);
+    }
+
+    /// <summary>
+    /// Separates the first item (home) from downloaded mission items
+    /// and updates the Vehicle home fields.
+    /// </summary>
+    private List<MissionItem> SeparateHomeFromDownload(List<MissionItem> all)
+    {
+        if (all.Count > 0)
+        {
+            var home = all[0];
+            HomeLatitude = home.Latitude;
+            HomeLongitude = home.Longitude;
+            HomeAltitude = home.Altitude;
+            return all.GetRange(1, all.Count - 1);
+        }
+
+        return all;
+    }
+
+    /// <summary>
+    /// Prepends the current home position as seq 0 for upload.
+    /// </summary>
+    private List<MissionItem> PrependHome(IReadOnlyList<MissionItem> items)
+    {
+        var home = new MissionItem(
+            MAVLink.MAV_FRAME.GLOBAL,
+            MAVLink.MAV_CMD.WAYPOINT,
+            0,
+            0,
+            0,
+            0,
+            (int)(HomeLatitude * 1e7),
+            (int)(HomeLongitude * 1e7),
+            HomeAltitude,
+            1,
+            1
+        );
+
+        var result = new List<MissionItem>(items.Count + 1) { home };
+        result.AddRange(items);
+        return result;
+    }
+
+    private void SetItemCache(MAVLink.MAV_MISSION_TYPE type, List<MissionItem> items)
+    {
+        lock (_lock)
+        {
+            switch (type)
+            {
+                case MAVLink.MAV_MISSION_TYPE.MISSION:
+                    _mission = items;
+                    break;
+                case MAVLink.MAV_MISSION_TYPE.FENCE:
+                    _fence = items;
+                    break;
+                case MAVLink.MAV_MISSION_TYPE.RALLY:
+                    _rally = items;
+                    break;
+            }
+        }
+    }
+
+    private static string FtpPathForType(MAVLink.MAV_MISSION_TYPE type) =>
+        type switch
+        {
+            MAVLink.MAV_MISSION_TYPE.MISSION => "@MISSION/mission.dat",
+            MAVLink.MAV_MISSION_TYPE.FENCE => "@MISSION/fence.dat",
+            MAVLink.MAV_MISSION_TYPE.RALLY => "@MISSION/rally.dat",
+            _ => throw new ArgumentOutOfRangeException(nameof(type), type, null),
+        };
+
+    private sealed class FtpMissionProgressAdapter(IProgress<MissionTransferProgress> inner)
+        : IProgress<(int Received, int Total)>
+    {
+        public void Report((int Received, int Total) value) =>
+            inner.Report(new MissionTransferProgress(value.Received, value.Total));
     }
 }
