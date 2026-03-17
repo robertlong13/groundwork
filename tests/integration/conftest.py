@@ -99,6 +99,7 @@ def sitl(request):
         "quadplane",
         "--defaults",
         defaults,
+        "--wipe",
         "--speedup",
         "5",
         f"--serial0=udpclient:127.0.0.1:{GW_PORT}",
