@@ -296,9 +296,9 @@ public class Vehicle
     /// <exception cref="TimeoutException">No response after all retry attempts.</exception>
     public async Task<double> FetchParameterAsync(string name, CancellationToken ct = default)
     {
-        var channel = PrimaryChannel;
-
-        var value = await channel.FetchParameterAsync(SysId, name, ct: ct).ConfigureAwait(false);
+        var value = await PrimaryChannel
+            .FetchParameterAsync(SysId, name, ct: ct)
+            .ConfigureAwait(false);
         var upperName = name.ToUpperInvariant();
 
         lock (_lock)
@@ -323,9 +323,7 @@ public class Vehicle
         CancellationToken ct = default
     )
     {
-        var channel = PrimaryChannel;
-
-        var confirmed = await channel
+        var confirmed = await PrimaryChannel
             .SetParameterAsync(SysId, name, (float)value, ct: ct)
             .ConfigureAwait(false);
         var upperName = name.ToUpperInvariant();
@@ -418,9 +416,8 @@ public class Vehicle
         CancellationToken ct = default
     )
     {
-        var channel = PrimaryChannel;
         var all = await MissionDownload
-            .DownloadAsync(channel, SysId, _logger, type, progress, ct)
+            .DownloadAsync(PrimaryChannel, SysId, _logger, type, progress, ct)
             .ConfigureAwait(false);
 
         var items = type == MAVLink.MAV_MISSION_TYPE.MISSION ? SeparateHomeFromDownload(all) : all;
@@ -438,10 +435,9 @@ public class Vehicle
         CancellationToken ct = default
     )
     {
-        var channel = PrimaryChannel;
         var toSend = type == MAVLink.MAV_MISSION_TYPE.MISSION ? PrependHome(items) : items;
         var result = await MissionUpload
-            .UploadAsync(channel, SysId, toSend, _logger, type, progress, ct)
+            .UploadAsync(PrimaryChannel, SysId, toSend, _logger, type, progress, ct)
             .ConfigureAwait(false);
 
         if (result == MAVLink.MAV_MISSION_RESULT.MAV_MISSION_ACCEPTED)
@@ -459,8 +455,7 @@ public class Vehicle
         CancellationToken ct = default
     )
     {
-        var channel = PrimaryChannel;
-        var client = new Channels.Ftp.FtpClient(channel, SysId, _logger);
+        var client = new Channels.Ftp.FtpClient(PrimaryChannel, SysId, _logger);
 
         IProgress<(int Received, int Total)>? ftpProgress =
             progress != null ? new FtpMissionProgressAdapter(progress) : null;
@@ -484,8 +479,7 @@ public class Vehicle
         CancellationToken ct = default
     )
     {
-        var channel = PrimaryChannel;
-        var client = new Channels.Ftp.FtpClient(channel, SysId, _logger);
+        var client = new Channels.Ftp.FtpClient(PrimaryChannel, SysId, _logger);
 
         var toSend = type == MAVLink.MAV_MISSION_TYPE.MISSION ? PrependHome(items) : items;
         var path = FtpPathForType(type);
@@ -501,9 +495,9 @@ public class Vehicle
     /// </summary>
     public async Task ClearItemsAsync(MAVLink.MAV_MISSION_TYPE type, CancellationToken ct = default)
     {
-        var channel = PrimaryChannel;
+        var primary = PrimaryChannel;
 
-        var ackTask = channel
+        var ackTask = primary
             .Messages.Where(m =>
                 m.msgid == (uint)MAVLink.MAVLINK_MSG_ID.MISSION_ACK && m.sysid == SysId
             )
@@ -513,7 +507,7 @@ public class Vehicle
             .Timeout(TimeSpan.FromSeconds(5))
             .ToTask(ct);
 
-        await channel
+        await primary
             .SendAsync(
                 MAVLink.MAVLINK_MSG_ID.MISSION_CLEAR_ALL,
                 new MAVLink.mavlink_mission_clear_all_t
@@ -577,10 +571,8 @@ public class Vehicle
         CancellationToken ct = default
     )
     {
-        var channel = PrimaryChannel;
-
         var download = ArduPilot.BulkParameterDownload.DownloadViaFtpAsync;
-        var count = await download(channel, SysId, WriteParam, _logger, progress, ct)
+        var count = await download(PrimaryChannel, SysId, WriteParam, _logger, progress, ct)
             .ConfigureAwait(false);
         ReportedParameterCount = count;
         return count;
@@ -604,11 +596,9 @@ public class Vehicle
         CancellationToken ct = default
     )
     {
-        var channel = PrimaryChannel;
-
         // Vehicle's existing PARAM_VALUE subscription populates the cache.
         return await ParamListDownload
-            .DownloadAsync(channel, SysId, _logger, progress, ct)
+            .DownloadAsync(PrimaryChannel, SysId, _logger, progress, ct)
             .ConfigureAwait(false);
     }
 
@@ -634,9 +624,7 @@ public class Vehicle
         CancellationToken ct = default
     )
     {
-        var channel = PrimaryChannel;
-
-        return channel.SendCommandAsync(
+        return PrimaryChannel.SendCommandAsync(
             SysId,
             targetComponent ?? (byte)MAVLink.MAV_COMPONENT.MAV_COMP_ID_AUTOPILOT1,
             command,
@@ -662,9 +650,7 @@ public class Vehicle
         CancellationToken ct = default
     )
     {
-        var channel = PrimaryChannel;
-
-        return channel.SendAsync(messageType, data, ct);
+        return PrimaryChannel.SendAsync(messageType, data, ct);
     }
 
     internal void AddChannel(MavChannel channel)

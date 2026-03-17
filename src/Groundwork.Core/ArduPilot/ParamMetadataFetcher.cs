@@ -419,8 +419,6 @@ public sealed class ParamMetadataFetcher
         // Each group contains parameter objects keyed by full param name.
         foreach (var group in doc.RootElement.EnumerateObject())
         {
-            var groupName = group.Name;
-
             if (group.Value.ValueKind != JsonValueKind.Object)
                 continue;
 
@@ -429,7 +427,7 @@ public sealed class ParamMetadataFetcher
                 if (param.Value.ValueKind != JsonValueKind.Object)
                     continue;
 
-                var meta = ParseParam(param.Value, groupName);
+                var meta = ParseParam(param.Value, group.Name);
                 result[param.Name] = meta;
             }
         }
