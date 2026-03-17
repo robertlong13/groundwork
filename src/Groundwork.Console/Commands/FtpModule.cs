@@ -15,7 +15,7 @@ using Microsoft.Extensions.Logging;
 namespace Groundwork.Console.Commands;
 
 /// <summary>
-/// Provides MAVFtp file download commands.
+/// Provides MAVFtp file transfer commands.
 /// </summary>
 public sealed class FtpModule
 {
@@ -27,6 +27,15 @@ public sealed class FtpModule
                 "Download a file from the autopilot via FTP",
                 "ftp get <remote_path> [local_path]",
                 (args, ctx) => GetAsync(args, ctx)
+            )
+        );
+
+        commands.Register(
+            "ftp put",
+            new DelegateCommand(
+                "Upload a file to the autopilot via FTP",
+                "ftp put <local_path> [remote_path]",
+                (args, ctx) => PutAsync(args, ctx)
             )
         );
     }
@@ -77,6 +86,65 @@ public sealed class FtpModule
         catch (TimeoutException)
         {
             ctx.Output.WriteLine("FTP download timed out");
+        }
+    }
+
+    private static async Task PutAsync(string[] args, CommandContext ctx)
+    {
+        if (args.Length == 0)
+        {
+            ctx.Output.WriteLine("Usage: ftp put <local_path> [remote_path]");
+            return;
+        }
+
+        var vehicle = ctx.CurrentVehicle;
+        if (vehicle is null)
+        {
+            ctx.Output.WriteLine("No vehicle connected");
+            return;
+        }
+
+        var channel = vehicle.PrimaryChannel;
+        if (channel is null)
+        {
+            ctx.Output.WriteLine("No channel available");
+            return;
+        }
+
+        var localPath = args[0].Trim('"');
+        var remotePath = args.Length > 1 ? args[1] : Path.GetFileName(localPath);
+
+        byte[] data;
+        try
+        {
+            data = await File.ReadAllBytesAsync(localPath, ctx.ShutdownToken);
+        }
+        catch (FileNotFoundException)
+        {
+            ctx.Output.WriteLine($"File not found: {localPath}");
+            return;
+        }
+
+        var logger = ctx.LoggerFactory.CreateLogger<FtpClient>();
+        var client = new FtpClient(channel, vehicle.SysId, logger);
+
+        try
+        {
+            var sw = Stopwatch.StartNew();
+            await client.UploadFileAsync(remotePath, data, ctx.ShutdownToken);
+            sw.Stop();
+
+            ctx.Output.WriteLine(
+                $"Uploaded {data.Length} bytes in {sw.Elapsed.TotalSeconds:F1}s -> {remotePath}"
+            );
+        }
+        catch (IOException ex)
+        {
+            ctx.Output.WriteLine($"FTP failed: {ex.Message}");
+        }
+        catch (TimeoutException)
+        {
+            ctx.Output.WriteLine("FTP upload timed out");
         }
     }
 
