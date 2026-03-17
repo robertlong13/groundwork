@@ -332,10 +332,13 @@ public sealed class MavChannel : IDisposable
     }
 
     /// <summary>
-    /// Returns the VehicleState for a given sysid, or null if not discovered.
+    /// Gets the VehicleState for a given sysid.
     /// </summary>
-    public VehicleState? GetState(byte sysId) =>
-        _states.TryGetValue(sysId, out var state) ? state : null;
+    /// <exception cref="KeyNotFoundException">No state exists for <paramref name="sysId"/>.</exception>
+    public VehicleState GetState(byte sysId) =>
+        _states.TryGetValue(sysId, out var state)
+            ? state
+            : throw new KeyNotFoundException($"No VehicleState for sysid {sysId}");
 
     public void Dispose()
     {

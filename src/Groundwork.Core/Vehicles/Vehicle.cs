@@ -87,7 +87,7 @@ public class Vehicle
     /// <summary>
     /// Gets the canonical vehicle state, delegated from the primary channel.
     /// </summary>
-    public VehicleState CanonicalState => PrimaryChannel.GetState(SysId)!;
+    public VehicleState CanonicalState => PrimaryChannel.GetState(SysId);
 
     /// <summary>
     /// Gets the channels that can reach this vehicle.
@@ -347,9 +347,7 @@ public class Vehicle
         CancellationToken ct = default
     )
     {
-        var hasFtp =
-            CanonicalState is { } state
-            && state.Capabilities.HasFlag(MAVLink.MAV_PROTOCOL_CAPABILITY.FTP);
+        var hasFtp = CanonicalState.Capabilities.HasFlag(MAVLink.MAV_PROTOCOL_CAPABILITY.FTP);
 
         return hasFtp
             ? DownloadMissionViaFtpAsync(progress, ct)
@@ -365,9 +363,7 @@ public class Vehicle
         CancellationToken ct = default
     )
     {
-        var hasFtp =
-            CanonicalState is { } state
-            && state.Capabilities.HasFlag(MAVLink.MAV_PROTOCOL_CAPABILITY.FTP);
+        var hasFtp = CanonicalState.Capabilities.HasFlag(MAVLink.MAV_PROTOCOL_CAPABILITY.FTP);
 
         return hasFtp
             ? UploadMissionViaFtpAsync(items, ct)
@@ -564,9 +560,7 @@ public class Vehicle
             _parameters.Clear();
         }
 
-        var hasFtp =
-            CanonicalState is { } state
-            && state.Capabilities.HasFlag(MAVLink.MAV_PROTOCOL_CAPABILITY.FTP);
+        var hasFtp = CanonicalState.Capabilities.HasFlag(MAVLink.MAV_PROTOCOL_CAPABILITY.FTP);
 
         return hasFtp
             ? DownloadParametersViaFtpAsync(progress, ct)
