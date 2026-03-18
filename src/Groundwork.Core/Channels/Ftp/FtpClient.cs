@@ -24,13 +24,15 @@ namespace Groundwork.Core.Channels.Ftp;
 public sealed class FtpClient
 {
     private const int MaxInFlight = 5;
-    private static readonly TimeSpan GapFillInterval = TimeSpan.FromSeconds(2);
-    private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan DefaultRetryTimeout = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan DefaultStallTimeout = TimeSpan.FromSeconds(10);
 
     private readonly MavChannel _channel;
     private readonly byte _targetSysId;
     private readonly byte _targetCompId;
     private readonly ILogger _logger;
+    private readonly TimeSpan _retryTimeout;
+    private readonly TimeSpan _stallTimeout;
     private ushort _seqNumber;
 
     public FtpClient(
@@ -39,11 +41,23 @@ public sealed class FtpClient
         ILogger logger,
         byte targetCompId = (byte)MAVLink.MAV_COMPONENT.MAV_COMP_ID_AUTOPILOT1
     )
+        : this(channel, targetSysId, logger, targetCompId, null, null) { }
+
+    internal FtpClient(
+        MavChannel channel,
+        byte targetSysId,
+        ILogger logger,
+        byte targetCompId,
+        TimeSpan? retryTimeout,
+        TimeSpan? stallTimeout
+    )
     {
         _channel = channel;
         _targetSysId = targetSysId;
         _targetCompId = targetCompId;
         _logger = logger;
+        _retryTimeout = retryTimeout ?? DefaultRetryTimeout;
+        _stallTimeout = stallTimeout ?? DefaultStallTimeout;
     }
 
     /// <summary>
@@ -260,7 +274,7 @@ public sealed class FtpClient
             .ConfigureAwait(false);
 
         // Wait for burst to complete or timeout.
-        using var burstTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var burstTimeout = new CancellationTokenSource(_retryTimeout);
         using var combined = CancellationTokenSource.CreateLinkedTokenSource(
             ct,
             burstTimeout.Token
@@ -343,7 +357,7 @@ public sealed class FtpClient
 
         // Timer-driven: every tick, send more gap requests.
         // If no new data arrives within the stall timeout, abandon.
-        using var timer = new PeriodicTimer(GapFillInterval);
+        using var timer = new PeriodicTimer(_retryTimeout);
         var lastProgressTime = Environment.TickCount64;
         int lastProgress = tracker.TotalReceived;
 
@@ -370,11 +384,11 @@ public sealed class FtpClient
             }
             else if (
                 Environment.TickCount64 - lastProgressTime
-                > (long)StallTimeout.TotalMilliseconds
+                > (long)_stallTimeout.TotalMilliseconds
             )
             {
                 throw new TimeoutException(
-                    $"FTP gap fill stalled for {StallTimeout.TotalSeconds}s"
+                    $"FTP gap fill stalled for {_stallTimeout.TotalSeconds}s"
                         + $" ({tracker.TotalReceived}/{fileSize} bytes,"
                         + $" {tracker.GapCount(fileSize)} gaps remaining)"
                 );
