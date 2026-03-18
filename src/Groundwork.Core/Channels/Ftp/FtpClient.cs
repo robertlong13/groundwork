@@ -222,76 +222,106 @@ public sealed class FtpClient
         CancellationToken ct
     )
     {
-        var burstDone = new TaskCompletionSource(
-            TaskCreationOptions.RunContinuationsAsynchronously
-        );
-        int eofOffset = buffer.Length;
+        var lastProgressTime = Environment.TickCount64;
+        int lastProgress = 0;
 
-        using var registration = ct.Register(() => burstDone.TrySetCanceled(ct));
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
 
-        using var sub = responses
-            .Where(r =>
-                r.Session == session
-                && (
-                    r.ReqOpcode == MAVLink.MAV_FTP_OPCODE.BURSTREADFILE
-                    || r.ReqOpcode == MAVLink.MAV_FTP_OPCODE.READFILE
+            var burstDone = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously
+            );
+            int eofNakOffset = -1;
+
+            using var registration = ct.Register(() => burstDone.TrySetCanceled(ct));
+
+            using var sub = responses
+                .Where(r =>
+                    r.Session == session
+                    && (
+                        r.ReqOpcode == MAVLink.MAV_FTP_OPCODE.BURSTREADFILE
+                        || r.ReqOpcode == MAVLink.MAV_FTP_OPCODE.READFILE
+                    )
                 )
-            )
-            .Subscribe(
-                r =>
-                {
-                    if (r.IsAck && r.Size > 0)
+                .Subscribe(
+                    r =>
                     {
-                        var offset = (int)r.Offset;
-                        var length = Math.Min(r.Size, buffer.Length - offset);
-                        if (offset >= 0 && offset < buffer.Length && length > 0)
+                        if (r.IsAck && r.Size > 0)
                         {
-                            r.Data[..length].CopyTo(buffer.AsSpan(offset));
-                            tracker.MarkReceived(offset, length);
-                            progress?.Report((tracker.TotalReceived, buffer.Length));
+                            var offset = (int)r.Offset;
+                            var length = Math.Min(r.Size, buffer.Length - offset);
+                            if (offset >= 0 && offset < buffer.Length && length > 0)
+                            {
+                                r.Data[..length].CopyTo(buffer.AsSpan(offset));
+                                tracker.MarkReceived(offset, length);
+                                progress?.Report((tracker.TotalReceived, buffer.Length));
+                            }
                         }
-                    }
 
-                    // Burst ends on burst_complete flag or any NAK.
-                    if (r.BurstComplete || r.IsNak)
-                    {
-                        if (r.IsNak && r.NakError == MAVLink.MAV_FTP_ERR.EOF)
-                            Volatile.Write(ref eofOffset, (int)r.Offset);
-                        burstDone.TrySetResult();
-                    }
-                },
-                ex => burstDone.TrySetException(ex)
+                        // Burst ends on burst_complete flag or any NAK.
+                        if (r.BurstComplete || r.IsNak)
+                        {
+                            if (r.IsNak && r.NakError == MAVLink.MAV_FTP_ERR.EOF)
+                                Volatile.Write(ref eofNakOffset, (int)r.Offset);
+                            burstDone.TrySetResult();
+                        }
+                    },
+                    ex => burstDone.TrySetException(ex)
+                );
+
+            // Burst from the end of the highest received range.
+            var requestOffset = (uint)tracker.HighestReceived;
+
+            await SendFtpAsync(
+                    MAVLink.MAV_FTP_OPCODE.BURSTREADFILE,
+                    session,
+                    (byte)FtpPayload.MaxDataLength,
+                    requestOffset,
+                    ct: ct
+                )
+                .ConfigureAwait(false);
+
+            using var burstCts = new CancellationTokenSource(_retryTimeout);
+            using var combined = CancellationTokenSource.CreateLinkedTokenSource(
+                ct,
+                burstCts.Token
             );
 
-        // Initiate burst read from offset 0.
-        await SendFtpAsync(
-                MAVLink.MAV_FTP_OPCODE.BURSTREADFILE,
-                session,
-                (byte)FtpPayload.MaxDataLength,
-                0,
-                ct: ct
+            try
+            {
+                await burstDone.Task.WaitAsync(combined.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+                when (burstCts.IsCancellationRequested && !ct.IsCancellationRequested)
+            {
+                _logger.LogDebug("FTP: burst read timed out at offset {Offset}", requestOffset);
+            }
+
+            // Stall detection: no new data across all burst attempts.
+            int currentProgress = tracker.TotalReceived;
+            if (currentProgress > lastProgress)
+            {
+                lastProgress = currentProgress;
+                lastProgressTime = Environment.TickCount64;
+            }
+            else if (
+                Environment.TickCount64 - lastProgressTime
+                > (long)_stallTimeout.TotalMilliseconds
             )
-            .ConfigureAwait(false);
+            {
+                _logger.LogDebug("FTP: burst read stalled, proceeding to gap fill");
+                break;
+            }
 
-        // Wait for burst to complete or timeout.
-        using var burstTimeout = new CancellationTokenSource(_retryTimeout);
-        using var combined = CancellationTokenSource.CreateLinkedTokenSource(
-            ct,
-            burstTimeout.Token
-        );
-
-        try
-        {
-            await burstDone.Task.WaitAsync(combined.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-            when (burstTimeout.IsCancellationRequested && !ct.IsCancellationRequested)
-        {
-            // Burst timed out -- proceed to gap fill with whatever we received.
-            _logger.LogDebug("FTP: burst read timed out, proceeding to gap fill");
+            // EOF confirmed when the NAK offset matches our request -- the
+            // autopilot echoes back our offset when we request at/past EOF.
+            var nakOfs = Volatile.Read(ref eofNakOffset);
+            if (nakOfs >= 0 && (uint)nakOfs == requestOffset)
+                return nakOfs;
         }
 
-        return eofOffset;
+        return buffer.Length;
     }
 
     private async Task GapFillAsync(

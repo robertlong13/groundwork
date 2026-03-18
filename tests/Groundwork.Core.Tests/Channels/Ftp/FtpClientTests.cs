@@ -77,6 +77,9 @@ public class FtpClientTests : IDisposable
             burstComplete: true
         );
 
+        // Confirmation burst from EOF offset -- NAK confirms true EOF.
+        await InjectEofNakAsync(session: 1, offset: (uint)fileData.Length);
+
         // Respond to TerminateSession.
         await InjectFtpResponseAsync(
             MAVLink.MAV_FTP_OPCODE.ACK,
@@ -136,6 +139,9 @@ public class FtpClientTests : IDisposable
             burstComplete: true
         );
 
+        // Confirmation burst from EOF offset.
+        await InjectEofNakAsync(session: 1, offset: (uint)fileData.Length);
+
         // TerminateSession ACK.
         await InjectFtpResponseAsync(
             MAVLink.MAV_FTP_OPCODE.ACK,
@@ -179,8 +185,8 @@ public class FtpClientTests : IDisposable
     public async Task DownloadFileAsync_HandlesExactMultipleBurstSize()
     {
         // 717 bytes = 3 x 239: ArduPilot bug where burst_complete is never set
-        // and EOF NAK offset is one payload short. The old single-burst code
-        // trusts the buggy offset and truncates the file.
+        // and EOF NAK offset is one payload short. The confirmation burst
+        // from offset 717 gets back NAK(EOF, offset=717), confirming true EOF.
         var fileData = new byte[239 * 3];
         Random.Shared.NextBytes(fileData);
 
@@ -240,6 +246,9 @@ public class FtpClientTests : IDisposable
             offset: 478,
             data: [(byte)MAVLink.MAV_FTP_ERR.EOF]
         );
+
+        // Confirmation burst from true EOF offset (717) -- NAK echoes it back.
+        await InjectEofNakAsync(session: 1, offset: (uint)fileData.Length);
 
         // TerminateSession ACK.
         await InjectFtpResponseAsync(
@@ -311,8 +320,11 @@ public class FtpClientTests : IDisposable
             burstComplete: true
         );
 
-        // burst_complete ends the burst phase; gap fill picks up the hole.
-        // Respond to READFILE for the missing chunk at offset 239.
+        // burst_complete triggers a confirmation burst from offset 600.
+        // EOF NAK confirms all data is on the wire, but the gap remains.
+        await InjectEofNakAsync(session: 1, offset: (uint)fileData.Length);
+
+        // Gap fill picks up the hole via READFILE.
         await InjectFtpResponseAsync(
             MAVLink.MAV_FTP_OPCODE.ACK,
             MAVLink.MAV_FTP_OPCODE.READFILE,
@@ -364,7 +376,7 @@ public class FtpClientTests : IDisposable
             data: sizeBytes
         );
 
-        // Single burst with all data, burst_complete ends burst phase.
+        // Single burst with all data.
         await InjectFtpResponseAsync(
             MAVLink.MAV_FTP_OPCODE.ACK,
             MAVLink.MAV_FTP_OPCODE.BURSTREADFILE,
@@ -373,6 +385,9 @@ public class FtpClientTests : IDisposable
             data: fileData,
             burstComplete: true
         );
+
+        // EOF NAK from confirmation burst.
+        await InjectEofNakAsync(session: 1, offset: (uint)fileData.Length);
 
         // TerminateSession ACK.
         await InjectFtpResponseAsync(
@@ -390,7 +405,172 @@ public class FtpClientTests : IDisposable
         Assert.Contains(reports, r => r.Received == fileData.Length && r.Total == fileData.Length);
     }
 
+    [Fact]
+    public async Task DownloadFileAsync_BurstCompleteTriggersImmediateRetry()
+    {
+        // 600 bytes: server sends first burst (2 packets, 478 bytes) with
+        // burst_complete, then a second burst delivers the remainder.
+        // Verifies that burst_complete triggers an immediate re-request
+        // without waiting for a timeout.
+        var fileData = new byte[600];
+        Random.Shared.NextBytes(fileData);
+
+        var client = new FtpClient(_channel, VehicleSysId, NullLogger.Instance);
+
+        var downloadTask = client.DownloadFileAsync("burst_retry.bin");
+
+        // ResetSessions ACK.
+        await InjectFtpResponseAsync(
+            MAVLink.MAV_FTP_OPCODE.ACK,
+            MAVLink.MAV_FTP_OPCODE.RESETSESSION,
+            session: 0,
+            offset: 0
+        );
+
+        // OpenFileRO ACK with file size.
+        var sizeBytes = new byte[4];
+        BinaryPrimitives.WriteUInt32LittleEndian(sizeBytes, (uint)fileData.Length);
+        await InjectFtpResponseAsync(
+            MAVLink.MAV_FTP_OPCODE.ACK,
+            MAVLink.MAV_FTP_OPCODE.OPENFILERO,
+            session: 1,
+            offset: 0,
+            data: sizeBytes
+        );
+
+        // First burst: two packets, then burst_complete (mid-file).
+        await InjectFtpResponseAsync(
+            MAVLink.MAV_FTP_OPCODE.ACK,
+            MAVLink.MAV_FTP_OPCODE.BURSTREADFILE,
+            session: 1,
+            offset: 0,
+            data: fileData[..239]
+        );
+
+        await InjectFtpResponseAsync(
+            MAVLink.MAV_FTP_OPCODE.ACK,
+            MAVLink.MAV_FTP_OPCODE.BURSTREADFILE,
+            session: 1,
+            offset: 239,
+            data: fileData[239..478],
+            burstComplete: true
+        );
+
+        // Second burst (triggered by burst_complete, no timeout):
+        // delivers the remainder.
+        await InjectFtpResponseAsync(
+            MAVLink.MAV_FTP_OPCODE.ACK,
+            MAVLink.MAV_FTP_OPCODE.BURSTREADFILE,
+            session: 1,
+            offset: 478,
+            data: fileData[478..],
+            burstComplete: true
+        );
+
+        // EOF NAK from confirmation burst at offset 600.
+        await InjectEofNakAsync(session: 1, offset: (uint)fileData.Length);
+
+        // TerminateSession ACK.
+        await InjectFtpResponseAsync(
+            MAVLink.MAV_FTP_OPCODE.ACK,
+            MAVLink.MAV_FTP_OPCODE.TERMINATESESSION,
+            session: 1,
+            offset: 0
+        );
+
+        var result = await downloadTask;
+        Assert.Equal(fileData, result);
+    }
+
+    [Fact]
+    public async Task DownloadFileAsync_TimeoutRetriesAfterDroppedBurstComplete()
+    {
+        // Simulates dropping both burst_complete and EOF NAK. The
+        // continuation burst timeout fires and the loop retries from
+        // HighestReceived, recovering without stalling.
+        var fileData = new byte[400];
+        Random.Shared.NextBytes(fileData);
+
+        var client = new FtpClient(
+            _channel,
+            VehicleSysId,
+            NullLogger.Instance,
+            targetCompId: CompId,
+            retryTimeout: TimeSpan.FromMilliseconds(200),
+            stallTimeout: null
+        );
+
+        var downloadTask = client.DownloadFileAsync("dropped.bin");
+
+        // ResetSessions ACK.
+        await InjectFtpResponseAsync(
+            MAVLink.MAV_FTP_OPCODE.ACK,
+            MAVLink.MAV_FTP_OPCODE.RESETSESSION,
+            session: 0,
+            offset: 0
+        );
+
+        // OpenFileRO ACK with file size.
+        var sizeBytes = new byte[4];
+        BinaryPrimitives.WriteUInt32LittleEndian(sizeBytes, (uint)fileData.Length);
+        await InjectFtpResponseAsync(
+            MAVLink.MAV_FTP_OPCODE.ACK,
+            MAVLink.MAV_FTP_OPCODE.OPENFILERO,
+            session: 1,
+            offset: 0,
+            data: sizeBytes
+        );
+
+        // First burst: one packet, then silence (burst_complete + NAK dropped).
+        await InjectFtpResponseAsync(
+            MAVLink.MAV_FTP_OPCODE.ACK,
+            MAVLink.MAV_FTP_OPCODE.BURSTREADFILE,
+            session: 1,
+            offset: 0,
+            data: fileData[..239]
+        );
+
+        // Wait for the 200ms continuation timeout to fire and retry.
+        await Task.Delay(300);
+
+        // Second burst (retry from offset 239): delivers the remainder.
+        await InjectFtpResponseAsync(
+            MAVLink.MAV_FTP_OPCODE.ACK,
+            MAVLink.MAV_FTP_OPCODE.BURSTREADFILE,
+            session: 1,
+            offset: 239,
+            data: fileData[239..],
+            burstComplete: true
+        );
+
+        // EOF NAK from confirmation burst at offset 400.
+        await InjectEofNakAsync(session: 1, offset: (uint)fileData.Length);
+
+        // TerminateSession ACK.
+        await InjectFtpResponseAsync(
+            MAVLink.MAV_FTP_OPCODE.ACK,
+            MAVLink.MAV_FTP_OPCODE.TERMINATESESSION,
+            session: 1,
+            offset: 0
+        );
+
+        var result = await downloadTask;
+        Assert.Equal(fileData, result);
+    }
+
     // -- Helpers --
+
+    /// <summary>
+    /// Injects an EOF NAK for a confirmation burst request.
+    /// </summary>
+    private Task InjectEofNakAsync(byte session, uint offset) =>
+        InjectFtpResponseAsync(
+            MAVLink.MAV_FTP_OPCODE.NAK,
+            MAVLink.MAV_FTP_OPCODE.BURSTREADFILE,
+            session: session,
+            offset: offset,
+            data: [(byte)MAVLink.MAV_FTP_ERR.EOF]
+        );
 
     private async Task InjectFtpResponseAsync(
         MAVLink.MAV_FTP_OPCODE opcode,

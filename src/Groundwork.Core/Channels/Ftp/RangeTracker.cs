@@ -20,6 +20,11 @@ internal sealed class RangeTracker
     private readonly List<(int Start, int End)> _ranges = new();
 
     /// <summary>
+    /// Gets the end offset of the highest received range.
+    /// </summary>
+    public int HighestReceived => _ranges.Count > 0 ? _ranges[^1].End : 0;
+
+    /// <summary>
     /// Gets the total number of bytes received.
     /// </summary>
     public int TotalReceived
