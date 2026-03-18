@@ -176,6 +176,84 @@ public class FtpClientTests : IDisposable
     }
 
     [Fact]
+    public async Task DownloadFileAsync_HandlesExactMultipleBurstSize()
+    {
+        // 717 bytes = 3 x 239: ArduPilot bug where burst_complete is never set
+        // and EOF NAK offset is one payload short. The old single-burst code
+        // trusts the buggy offset and truncates the file.
+        var fileData = new byte[239 * 3];
+        Random.Shared.NextBytes(fileData);
+
+        var client = new FtpClient(_channel, VehicleSysId, NullLogger.Instance);
+
+        var downloadTask = client.DownloadFileAsync("exact_multiple.bin");
+
+        // ResetSessions ACK.
+        await InjectFtpResponseAsync(
+            MAVLink.MAV_FTP_OPCODE.ACK,
+            MAVLink.MAV_FTP_OPCODE.RESETSESSION,
+            session: 0,
+            offset: 0
+        );
+
+        // OpenFileRO ACK with file size.
+        var sizeBytes = new byte[4];
+        BinaryPrimitives.WriteUInt32LittleEndian(sizeBytes, (uint)fileData.Length);
+        await InjectFtpResponseAsync(
+            MAVLink.MAV_FTP_OPCODE.ACK,
+            MAVLink.MAV_FTP_OPCODE.OPENFILERO,
+            session: 1,
+            offset: 0,
+            data: sizeBytes
+        );
+
+        // Three full-sized burst packets, no burst_complete (AP bug).
+        await InjectFtpResponseAsync(
+            MAVLink.MAV_FTP_OPCODE.ACK,
+            MAVLink.MAV_FTP_OPCODE.BURSTREADFILE,
+            session: 1,
+            offset: 0,
+            data: fileData[..239]
+        );
+
+        await InjectFtpResponseAsync(
+            MAVLink.MAV_FTP_OPCODE.ACK,
+            MAVLink.MAV_FTP_OPCODE.BURSTREADFILE,
+            session: 1,
+            offset: 239,
+            data: fileData[239..478]
+        );
+
+        await InjectFtpResponseAsync(
+            MAVLink.MAV_FTP_OPCODE.ACK,
+            MAVLink.MAV_FTP_OPCODE.BURSTREADFILE,
+            session: 1,
+            offset: 478,
+            data: fileData[478..]
+        );
+
+        // Buggy EOF NAK: offset is one payload short, no burst_complete.
+        await InjectFtpResponseAsync(
+            MAVLink.MAV_FTP_OPCODE.NAK,
+            MAVLink.MAV_FTP_OPCODE.BURSTREADFILE,
+            session: 1,
+            offset: 478,
+            data: [(byte)MAVLink.MAV_FTP_ERR.EOF]
+        );
+
+        // TerminateSession ACK.
+        await InjectFtpResponseAsync(
+            MAVLink.MAV_FTP_OPCODE.ACK,
+            MAVLink.MAV_FTP_OPCODE.TERMINATESESSION,
+            session: 1,
+            offset: 0
+        );
+
+        var result = await downloadTask;
+        Assert.Equal(fileData, result);
+    }
+
+    [Fact]
     public async Task DownloadFileAsync_GapFillRecoversDroppedPacket()
     {
         // 600 bytes across 3 burst packets. The middle packet (offset 239)

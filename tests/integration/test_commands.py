@@ -6,6 +6,10 @@ Requires SITL (QuadPlane) and Groundwork.Console to be running.
 See conftest.py for fixture details.
 """
 
+import os
+
+from conftest import SITL_DIR
+from helpers import ReplClient
 from helpers import wait_altitude
 from helpers import wait_armed
 from helpers import wait_disarmed
@@ -78,3 +82,34 @@ def test_takeoff_land(repl, mav, gw_ready):
 
     # Wait for touchdown and disarm (can take a while).
     wait_disarmed(mav, timeout=60)
+
+
+def test_ftp_burst_exact_multiple(console, gw_ready, tmp_path):
+    """Download a file whose size is an exact multiple of burst payload (239).
+
+    717 = 3 x 239 triggers an ArduPilot bug where burst_complete is never
+    set and the EOF NAK offset is one payload short. The confirmation
+    burst strategy works around this.
+    """
+    # Plant a 717-byte file in SITL's working directory (its FTP root).
+    file_data = bytes(range(256)) * 2 + bytes(range(717 - 512))
+    remote_name = "gw_test_717.bin"
+    remote_path = os.path.join(SITL_DIR, remote_name)
+    with open(remote_path, "wb") as f:
+        f.write(file_data)
+
+    local_path = tmp_path / "downloaded.bin"
+
+    try:
+        # Use a longer timeout -- FTP burst + confirmation can take a few seconds.
+        repl = ReplClient(timeout=30)
+        try:
+            response = repl.send(f"ftp get {remote_name} {local_path}")
+            assert "Downloaded" in response, f"Unexpected response: {response}"
+            assert local_path.exists(), "Local file was not created"
+            assert local_path.read_bytes() == file_data
+        finally:
+            repl.close()
+    finally:
+        # Clean up the planted file.
+        os.unlink(remote_path)
