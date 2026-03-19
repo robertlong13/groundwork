@@ -36,23 +36,30 @@ class ReplClient:
         # Consume the initial connect prompt.
         self._read_until_prompt()
 
-    def send(self, command: str) -> str:
+    def send(self, command: str, timeout: float | None = None) -> str:
         """Send a command and return the single response line.
 
         For commands that produce exactly one line of output.
         """
-        lines = self.send_multi(command)
+        lines = self.send_multi(command, timeout=timeout)
         return lines[0] if lines else ""
 
-    def send_multi(self, command: str) -> list[str]:
+    def send_multi(self, command: str, timeout: float | None = None) -> list[str]:
         """Send a command and collect all response lines until the prompt.
 
         Returns lines between the command and the next "> " prompt.
+        If timeout is given, temporarily override the socket timeout.
         """
         _progress(f"REPL> {command}")
-        self._wfile.write(command + "\n")
-        self._wfile.flush()
-        lines = self._read_until_prompt()
+        prev = self._sock.gettimeout()
+        if timeout is not None:
+            self._sock.settimeout(timeout)
+        try:
+            self._wfile.write(command + "\n")
+            self._wfile.flush()
+            lines = self._read_until_prompt()
+        finally:
+            self._sock.settimeout(prev)
         for line in lines:
             _progress(f"REPL< {line}")
         return lines
