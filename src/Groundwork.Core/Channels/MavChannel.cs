@@ -32,6 +32,8 @@ public sealed class MavChannel : IDisposable
 
     private static readonly TimeSpan NegotiationRetryInterval = TimeSpan.FromSeconds(2);
 
+    private static readonly TimeSpan DefaultCommandRetryInterval = TimeSpan.FromSeconds(1);
+
     private readonly IConnection _connection;
     private readonly VehicleRegistry _vehicleRegistry;
     private readonly ILogger<MavChannel> _logger;
@@ -44,17 +46,21 @@ public sealed class MavChannel : IDisposable
     private readonly ConcurrentDictionary<byte, Vehicle> _vehicles = new();
     private readonly ConcurrentDictionary<uint, long> _messageCounts = new();
     private readonly ConcurrentDictionary<byte, Task> _negotiations = new();
+    private readonly ConcurrentDictionary<ushort, SemaphoreSlim> _commandGate = new();
+    private readonly TimeSpan _commandRetryInterval;
     private Task? _heartbeatTask;
 
     public MavChannel(
         IConnection connection,
         VehicleRegistry vehicleRegistry,
-        ILoggerFactory loggerFactory
+        ILoggerFactory loggerFactory,
+        TimeSpan? commandRetryInterval = null
     )
     {
         _connection = connection;
         _vehicleRegistry = vehicleRegistry;
         _logger = loggerFactory.CreateLogger<MavChannel>();
+        _commandRetryInterval = commandRetryInterval ?? DefaultCommandRetryInterval;
 
         _parser = new MavLinkParser(connection.BaseStream, loggerFactory);
 
@@ -121,10 +127,16 @@ public sealed class MavChannel : IDisposable
     }
 
     /// <summary>
-    /// Sends a COMMAND_LONG and awaits the matching COMMAND_ACK.
+    /// Sends a COMMAND_LONG and awaits the matching COMMAND_ACK, retrying every second
+    /// until an ACK arrives or the overall timeout expires.
     /// </summary>
+    /// <remarks>
+    /// Only one in-flight command per MAV_CMD is allowed at a time. If another caller is
+    /// already awaiting an ACK for the same command, this call waits, drawing from the
+    /// same overall timeout budget.
+    /// </remarks>
     /// <param name="command">The MAVLink command to send.</param>
-    /// <param name="timeout">ACK timeout. Defaults to 5 seconds.</param>
+    /// <param name="timeout">Overall deadline covering queue wait and ACK. Defaults to 5 seconds.</param>
     /// <returns>The <see cref="MAVLink.MAV_RESULT"/> from the ACK.</returns>
     /// <exception cref="TimeoutException">No ACK received within the timeout period.</exception>
     public async Task<MAVLink.MAV_RESULT> SendCommandAsync(
@@ -144,39 +156,86 @@ public sealed class MavChannel : IDisposable
     {
         var effectiveTimeout = timeout ?? TimeSpan.FromSeconds(5);
 
-        // Subscribe BEFORE sending to avoid race with fast ACK.
-        // Filter by source compid when targeting a specific component.
-        // For broadcast (compid 0), accept the first ACK from any component.
-        var ackTask = Messages
-            .Where(m =>
-                m.msgid == (uint)MAVLink.MAVLINK_MSG_ID.COMMAND_ACK
-                && m.sysid == targetSysId
-                && (targetCompId == 0 || m.compid == targetCompId)
-            )
-            .Select(m => m.ToStructure<MAVLink.mavlink_command_ack_t>())
-            .Where(ack => ack.command == (ushort)command)
-            .Take(1)
-            .Timeout(effectiveTimeout)
-            .ToTask(ct);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(effectiveTimeout);
 
-        var cmd = new MAVLink.mavlink_command_long_t
+        var sem = _commandGate.GetOrAdd((ushort)command, _ => new SemaphoreSlim(1, 1));
+
+        try
         {
-            target_system = targetSysId,
-            target_component = targetCompId,
-            command = (ushort)command,
-            param1 = param1,
-            param2 = param2,
-            param3 = param3,
-            param4 = param4,
-            param5 = param5,
-            param6 = param6,
-            param7 = param7,
-        };
+            await sem.WaitAsync(cts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"Timed out waiting to send {command} within {effectiveTimeout.TotalSeconds:F0}s"
+            );
+        }
 
-        await SendAsync(MAVLink.MAVLINK_MSG_ID.COMMAND_LONG, cmd, ct).ConfigureAwait(false);
+        try
+        {
+            // Filter by source compid when targeting a specific component.
+            // For broadcast (compid 0), accept the first ACK from any component.
+            // Build the pipeline once; each ToTask call makes a fresh subscription.
+            var ackStream = Messages
+                .Where(m =>
+                    m.msgid == (uint)MAVLink.MAVLINK_MSG_ID.COMMAND_ACK
+                    && m.sysid == targetSysId
+                    && (targetCompId == 0 || m.compid == targetCompId)
+                )
+                .Select(m => m.ToStructure<MAVLink.mavlink_command_ack_t>())
+                .Where(ack => ack.command == (ushort)command);
 
-        var ack = await ackTask.ConfigureAwait(false);
-        return (MAVLink.MAV_RESULT)ack.result;
+            var cmd = new MAVLink.mavlink_command_long_t
+            {
+                target_system = targetSysId,
+                target_component = targetCompId,
+                command = (ushort)command,
+                param1 = param1,
+                param2 = param2,
+                param3 = param3,
+                param4 = param4,
+                param5 = param5,
+                param6 = param6,
+                param7 = param7,
+            };
+
+            // Subscribe once before the loop; the subscription stays alive across retries,
+            // eliminating the race window between unsubscribing and resubscribing.
+            var ackTask = ackStream.Take(1).ToTask(cts.Token);
+
+            byte confirmation = 0;
+
+            while (true)
+            {
+                cmd.confirmation = confirmation++;
+
+                await SendAsync(MAVLink.MAVLINK_MSG_ID.COMMAND_LONG, cmd, cts.Token)
+                    .ConfigureAwait(false);
+
+                try
+                {
+                    var ack = await ackTask
+                        .WaitAsync(_commandRetryInterval, cts.Token)
+                        .ConfigureAwait(false);
+                    return (MAVLink.MAV_RESULT)ack.result;
+                }
+                catch (TimeoutException)
+                {
+                    // Retry interval elapsed; overall deadline enforced by cts.Token.
+                }
+            }
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"No COMMAND_ACK for {command} within {effectiveTimeout.TotalSeconds:F0}s"
+            );
+        }
+        finally
+        {
+            sem.Release();
+        }
     }
 
     /// <summary>
