@@ -127,6 +127,45 @@ public sealed class MavChannel : IDisposable
     }
 
     /// <summary>
+    /// Sends a COMMAND_LONG without waiting for a COMMAND_ACK.
+    /// </summary>
+    /// <remarks>
+    /// Does not interact with the per-command gate used by <see cref="SendCommandAsync"/>.
+    /// Mixing this with <see cref="SendCommandAsync"/> for the same command may produce
+    /// unexpected results since there is no way to correlate which ACK goes to which command.
+    /// </remarks>
+    public Task SendCommandNoAckAsync(
+        byte targetSysId,
+        byte targetCompId,
+        MAVLink.MAV_CMD command,
+        float param1 = 0,
+        float param2 = 0,
+        float param3 = 0,
+        float param4 = 0,
+        float param5 = 0,
+        float param6 = 0,
+        float param7 = 0,
+        CancellationToken ct = default
+    )
+    {
+        var cmd = new MAVLink.mavlink_command_long_t
+        {
+            target_system = targetSysId,
+            target_component = targetCompId,
+            command = (ushort)command,
+            param1 = param1,
+            param2 = param2,
+            param3 = param3,
+            param4 = param4,
+            param5 = param5,
+            param6 = param6,
+            param7 = param7,
+        };
+
+        return SendAsync(MAVLink.MAVLINK_MSG_ID.COMMAND_LONG, cmd, ct);
+    }
+
+    /// <summary>
     /// Sends a COMMAND_LONG and awaits the matching COMMAND_ACK, retrying every second
     /// until an ACK arrives or the overall timeout expires.
     /// </summary>
