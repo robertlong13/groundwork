@@ -603,6 +603,38 @@ public class Vehicle
     }
 
     /// <summary>
+    /// Sends a COMMAND_LONG to the autopilot via the primary channel without waiting for a COMMAND_ACK.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">No channel available.</exception>
+    public Task SendCommandNoAckAsync(
+        MAVLink.MAV_CMD command,
+        float param1 = 0,
+        float param2 = 0,
+        float param3 = 0,
+        float param4 = 0,
+        float param5 = 0,
+        float param6 = 0,
+        float param7 = 0,
+        byte? targetComponent = null,
+        CancellationToken ct = default
+    )
+    {
+        return PrimaryChannel.SendCommandNoAckAsync(
+            SysId,
+            targetComponent ?? (byte)MAVLink.MAV_COMPONENT.MAV_COMP_ID_AUTOPILOT1,
+            command,
+            param1,
+            param2,
+            param3,
+            param4,
+            param5,
+            param6,
+            param7,
+            ct
+        );
+    }
+
+    /// <summary>
     /// Sends a COMMAND_LONG to the autopilot via the primary channel and awaits the matching COMMAND_ACK.
     /// </summary>
     /// <param name="command">The MAVLink command to send.</param>
