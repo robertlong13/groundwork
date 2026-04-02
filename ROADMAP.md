@@ -82,17 +82,17 @@ Tracked by `scripts/parity.py`. See CLAUDE.md for usage.
 
 **Exit Criteria:**
 
-- [ ] Fetch all parameters from vehicle
-- [ ] Set individual parameters
-- [ ] Read/write `.param` files
-- [ ] Parameter metadata integration (descriptions, ranges, units)
-- [ ] Diff parameters against file or defaults
-- [ ] Upload mission to vehicle
-- [ ] Download mission from vehicle
-- [ ] Read/write `.waypoints` files
-- [ ] Monitor mission progress during flight
-- [ ] Console commands: `param show`, `param set`, `param load`, `param save`, `param diff`
-- [ ] Console commands: `wp load <file>`, `wp save <file>`, `wp list`
+- [x] Fetch all parameters from vehicle
+- [x] Set individual parameters
+- [x] Read/write `.param` files
+- [x] Parameter metadata integration (descriptions, ranges, units)
+- [x] Diff parameters against file or defaults
+- [x] Upload mission to vehicle
+- [x] Download mission from vehicle
+- [x] Read/write `.waypoints` files
+- [x] Monitor mission progress during flight
+- [x] Console commands: `param show`, `param set`, `param load`, `param save`, `param diff`
+- [x] Console commands: `wp load <file>`, `wp save <file>`, `wp list`
 
 ---
 
