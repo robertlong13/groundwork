@@ -30,7 +30,7 @@ public class RangeTrackerTests
 
         Assert.True(tracker.IsComplete(100));
         Assert.Equal(100, tracker.TotalReceived);
-        Assert.Null(tracker.FirstGap(100));
+        Assert.Empty(tracker.GetGapsFrom(0, 100));
     }
 
     [Fact]
@@ -40,10 +40,8 @@ public class RangeTrackerTests
         tracker.MarkReceived(50, 50);
 
         Assert.False(tracker.IsComplete(100));
-        var gap = tracker.FirstGap(100);
-        Assert.NotNull(gap);
-        Assert.Equal(0, gap.Value.Offset);
-        Assert.Equal(50, gap.Value.Length);
+        var gaps = tracker.GetGapsFrom(0, 100);
+        Assert.Equal((0, 50), gaps[0]);
     }
 
     [Fact]
@@ -54,10 +52,8 @@ public class RangeTrackerTests
         tracker.MarkReceived(60, 40);
 
         Assert.False(tracker.IsComplete(100));
-        var gap = tracker.FirstGap(100);
-        Assert.NotNull(gap);
-        Assert.Equal(30, gap.Value.Offset);
-        Assert.Equal(30, gap.Value.Length);
+        var gaps = tracker.GetGapsFrom(0, 100);
+        Assert.Equal((30, 30), gaps[0]);
     }
 
     [Fact]
@@ -67,10 +63,8 @@ public class RangeTrackerTests
         tracker.MarkReceived(0, 50);
 
         Assert.False(tracker.IsComplete(100));
-        var gap = tracker.FirstGap(100);
-        Assert.NotNull(gap);
-        Assert.Equal(50, gap.Value.Offset);
-        Assert.Equal(50, gap.Value.Length);
+        var gaps = tracker.GetGapsFrom(0, 100);
+        Assert.Equal((50, 50), gaps[0]);
     }
 
     [Fact]
@@ -115,17 +109,17 @@ public class RangeTrackerTests
         tracker.MarkReceived(70, 10); // 70-80
 
         // Gaps: 0-10, 20-40, 50-70, 80-100
-        Assert.Equal(4, tracker.GapCount(100));
+        Assert.Equal(4, tracker.GetGapsFrom(0, 100).Count);
     }
 
     [Fact]
-    public void EnumerateGaps_ReturnsAllGaps()
+    public void GetGapsFrom_ReturnsAllGaps()
     {
         var tracker = new RangeTracker();
         tracker.MarkReceived(10, 10); // 10-20
         tracker.MarkReceived(40, 10); // 40-50
 
-        var gaps = tracker.EnumerateGaps(60).ToList();
+        var gaps = tracker.GetGapsFrom(0, 60);
 
         Assert.Equal(3, gaps.Count);
         Assert.Equal((0, 10), gaps[0]);
@@ -148,8 +142,7 @@ public class RangeTrackerTests
     {
         var tracker = new RangeTracker();
         Assert.True(tracker.IsComplete(0));
-        Assert.Null(tracker.FirstGap(0));
-        Assert.Equal(0, tracker.GapCount(0));
+        Assert.Empty(tracker.GetGapsFrom(0, 0));
     }
 
     [Fact]
@@ -175,18 +168,18 @@ public class RangeTrackerTests
 
         // (0,60) + (80,100) = 80 bytes, 1 gap at 60-80.
         Assert.Equal(80, tracker.TotalReceived);
-        Assert.Equal(1, tracker.GapCount(100));
+        Assert.Single(tracker.GetGapsFrom(0, 100));
     }
 
     [Fact]
-    public void EnumerateGapsFrom_StartsAtCursor()
+    public void GetGapsFrom_StartsAtCursor()
     {
         var tracker = new RangeTracker();
         tracker.MarkReceived(10, 10); // 10-20
         tracker.MarkReceived(40, 10); // 40-50
         // Gaps: 0-10, 20-40, 50-60
 
-        var gaps = tracker.EnumerateGapsFrom(25, 60).ToList();
+        var gaps = tracker.GetGapsFrom(25, 60);
 
         // From cursor=25: (25,15), (50,10), then wrap: (0,10), (20,5)
         Assert.Equal(4, gaps.Count);
@@ -197,26 +190,13 @@ public class RangeTrackerTests
     }
 
     [Fact]
-    public void EnumerateGapsFrom_ZeroCursor_SameAsEnumerateGaps()
-    {
-        var tracker = new RangeTracker();
-        tracker.MarkReceived(10, 10); // 10-20
-        tracker.MarkReceived(40, 10); // 40-50
-
-        var normal = tracker.EnumerateGaps(60).ToList();
-        var fromZero = tracker.EnumerateGapsFrom(0, 60).ToList();
-
-        Assert.Equal(normal, fromZero);
-    }
-
-    [Fact]
-    public void EnumerateGapsFrom_PastAllGaps_WrapsToStart()
+    public void GetGapsFrom_PastAllGaps_WrapsToStart()
     {
         var tracker = new RangeTracker();
         tracker.MarkReceived(0, 50);
         // Gap: 50-100
 
-        var gaps = tracker.EnumerateGapsFrom(100, 100).ToList();
+        var gaps = tracker.GetGapsFrom(100, 100);
 
         // Cursor at end, wraps to 0. Only gap is 50-100.
         Assert.Single(gaps);

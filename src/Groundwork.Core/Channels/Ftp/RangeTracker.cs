@@ -14,15 +14,25 @@ namespace Groundwork.Core.Channels.Ftp;
 /// Tracks which byte ranges of a file have been received, using a sorted
 /// list of non-overlapping intervals with merge-on-insert.
 /// </summary>
+/// <remarks>All public members are thread-safe.</remarks>
 internal sealed class RangeTracker
 {
+    private readonly object _lock = new();
+
     // Sorted by Start. Invariant: no two ranges overlap or are adjacent.
     private readonly List<(int Start, int End)> _ranges = new();
 
     /// <summary>
     /// Gets the highest byte offset received (exclusive end of last range), or 0 if empty.
     /// </summary>
-    public int HighestReceived => _ranges.Count > 0 ? _ranges[^1].End : 0;
+    public int HighestReceived
+    {
+        get
+        {
+            lock (_lock)
+                return _ranges.Count > 0 ? _ranges[^1].End : 0;
+        }
+    }
 
     /// <summary>
     /// Gets the total number of bytes received.
@@ -31,11 +41,17 @@ internal sealed class RangeTracker
     {
         get
         {
-            int total = 0;
-            foreach (var (start, end) in _ranges)
-                total += end - start;
-            return total;
+            lock (_lock)
+                return SumRanges();
         }
+    }
+
+    private int SumRanges()
+    {
+        int total = 0;
+        foreach (var (start, end) in _ranges)
+            total += end - start;
+        return total;
     }
 
     /// <summary>
@@ -46,6 +62,12 @@ internal sealed class RangeTracker
         if (length <= 0)
             return;
 
+        lock (_lock)
+            MergeRange(offset, length);
+    }
+
+    private void MergeRange(int offset, int length)
+    {
         int newStart = offset;
         int newEnd = offset + length;
 
@@ -91,71 +113,17 @@ internal sealed class RangeTracker
     }
 
     /// <summary>
-    /// Returns the first gap in the range [0, fileSize), or null if complete.
-    /// </summary>
-    public (int Offset, int Length)? FirstGap(int fileSize)
-    {
-        if (fileSize <= 0)
-            return null;
-
-        int expected = 0;
-
-        foreach (var (start, end) in _ranges)
-        {
-            if (start > expected)
-                return (expected, Math.Min(start, fileSize) - expected);
-
-            expected = Math.Max(expected, end);
-
-            if (expected >= fileSize)
-                return null;
-        }
-
-        return expected < fileSize ? (expected, fileSize - expected) : null;
-    }
-
-    /// <summary>
     /// Returns whether all bytes in [0, fileSize) have been received.
     /// </summary>
-    public bool IsComplete(int fileSize) =>
-        fileSize <= 0
-        || (_ranges.Count == 1 && _ranges[0].Start == 0 && _ranges[0].End >= fileSize);
-
-    /// <summary>
-    /// Returns the number of gaps in [0, fileSize).
-    /// </summary>
-    public int GapCount(int fileSize)
+    public bool IsComplete(int fileSize)
     {
-        if (fileSize <= 0)
-            return 0;
-
-        int gaps = 0;
-        int expected = 0;
-
-        foreach (var (start, end) in _ranges)
-        {
-            if (start > expected)
-                gaps++;
-            expected = Math.Max(expected, end);
-
-            if (expected >= fileSize)
-                return gaps;
-        }
-
-        if (expected < fileSize)
-            gaps++;
-
-        return gaps;
+        lock (_lock)
+            return fileSize <= 0
+                || (_ranges.Count == 1 && _ranges[0].Start == 0 && _ranges[0].End >= fileSize);
     }
 
-    /// <summary>
-    /// Enumerates all gaps in [0, fileSize).
-    /// </summary>
-    internal IEnumerable<(int Offset, int Length)> EnumerateGaps(int fileSize)
+    private IEnumerable<(int Offset, int Length)> EnumerateGaps(int fileSize)
     {
-        if (fileSize <= 0)
-            yield break;
-
         int expected = 0;
 
         foreach (var (start, end) in _ranges)
@@ -174,16 +142,27 @@ internal sealed class RangeTracker
     }
 
     /// <summary>
-    /// Enumerates gaps starting from <paramref name="cursor"/>, wrapping to 0
-    /// after reaching <paramref name="fileSize"/>. Yields each gap at most once.
+    /// Returns a snapshot of gaps starting from <paramref name="cursor"/>,
+    /// wrapping to 0 after reaching <paramref name="fileSize"/>.
     /// </summary>
-    internal IEnumerable<(int Offset, int Length)> EnumerateGapsFrom(int cursor, int fileSize)
+    /// <remarks>Each gap appears at most once.</remarks>
+    internal List<(int Offset, int Length)> GetGapsFrom(
+        int cursor,
+        int fileSize,
+        int maxCount = int.MaxValue
+    )
     {
         if (fileSize <= 0)
-            yield break;
+            return [];
 
         cursor = Math.Clamp(cursor, 0, fileSize);
 
+        lock (_lock)
+            return EnumerateGapsFrom(cursor, fileSize).Take(maxCount).ToList();
+    }
+
+    private IEnumerable<(int Offset, int Length)> EnumerateGapsFrom(int cursor, int fileSize)
+    {
         // Gaps from cursor to end.
         foreach (var (offset, length) in EnumerateGaps(fileSize))
         {
