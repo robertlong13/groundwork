@@ -104,7 +104,7 @@ Tracked by `scripts/parity.py`. See CLAUDE.md for usage.
 
 - [ ] Same vehicle state model works for replay
 - [ ] Playback controls: play, pause, speed, seek
-- [ ] Console commands: `log open <file>`, `log play`, `log pause`, `log speed <multiplier>`, `log seek <time>`
+- [ ] Console commands: `tlog open <file>`, `tlog play`, `tlog pause`, `tlog speed <multiplier>`, `tlog seek <time>`
 
 M0's `TlogConnection` provides the basic "read messages from file" capability.
 This milestone adds the user-facing playback experience on top.
