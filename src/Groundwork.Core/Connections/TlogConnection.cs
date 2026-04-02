@@ -14,10 +14,12 @@ using Microsoft.Extensions.Logging;
 namespace Groundwork.Core.Connections;
 
 /// <summary>
-/// Replays a MAVLink tlog file as a paced byte stream, preserving
-/// original inter-message timing at configurable speed. Gaps longer
-/// than <see cref="MaxGap"/> are clamped.
+/// Provides tlog replay as a paced byte stream.
 /// </summary>
+/// <remarks>
+/// Preserves original inter-message timing at configurable speed.
+/// Gaps longer than <see cref="MaxGap"/> are clamped.
+/// </remarks>
 public sealed class TlogConnection : IConnection
 {
     /// <summary>

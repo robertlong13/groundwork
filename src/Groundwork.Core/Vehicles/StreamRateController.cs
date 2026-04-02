@@ -13,18 +13,7 @@ using Groundwork.Core.Channels;
 namespace Groundwork.Core.Vehicles;
 
 /// <summary>
-/// Manages outbound telemetry rate requests for a single vehicle.
-/// Two complementary mechanisms:
-/// <list type="bullet">
-///   <item><see cref="SetStreamRate"/> configures per-stream bulk rates
-///   via REQUEST_DATA_STREAM. Last writer wins.</item>
-///   <item><see cref="RequestMessageRate"/> configures per-message rates
-///   via SET_MESSAGE_INTERVAL. Lease-based; highest rate wins across
-///   multiple consumers.</item>
-/// </list>
-/// Rates are sent on all channels registered via
-/// <see cref="AddChannel"/>. New channels receive current rates
-/// immediately on registration.
+/// Provides outbound telemetry rate management for a single vehicle.
 /// </summary>
 public sealed class StreamRateController
 {

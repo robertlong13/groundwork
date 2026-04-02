@@ -11,10 +11,13 @@
 namespace Groundwork.Core.Vehicles;
 
 /// <summary>
-/// Per-channel-per-vehicle telemetry and link health. Driven by
-/// <see cref="Channels.MavChannel"/>, which calls <see cref="Update"/>
-/// for each received message before forwarding to external subscribers.
+/// Represents per-channel-per-vehicle telemetry and link health.
 /// </summary>
+/// <remarks>
+/// Driven by <see cref="Channels.MavChannel"/>, which calls
+/// <see cref="Update"/> for each received message before forwarding
+/// to external subscribers.
+/// </remarks>
 public sealed class VehicleState
 {
     // -- HEARTBEAT fields --
