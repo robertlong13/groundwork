@@ -16,9 +16,12 @@ using Microsoft.Extensions.Logging;
 namespace Groundwork.Core.Connections;
 
 /// <summary>
-/// UDP listen (server) connection. Binds to a local port, receives datagrams,
-/// and tracks the most recent remote endpoint for replies.
+/// Provides a UDP listen (server) connection.
 /// </summary>
+/// <remarks>
+/// Binds to a local port, receives datagrams, and tracks the most
+/// recent remote endpoint for replies.
+/// </remarks>
 public sealed class UdpListenConnection : IConnection
 {
     private readonly IPEndPoint _bindEndPoint;

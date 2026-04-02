@@ -16,8 +16,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Groundwork.Core.Vehicles;
 
 /// <summary>
-/// Maps hardware UID to <see cref="Vehicle"/>. Single source of truth
-/// for known vehicles across all channels.
+/// Provides hardware-UID-keyed lookup of known <see cref="Vehicle"/>s across all channels.
 /// </summary>
 public class VehicleRegistry
 {

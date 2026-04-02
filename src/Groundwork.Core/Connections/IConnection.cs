@@ -11,10 +11,12 @@
 namespace Groundwork.Core.Connections;
 
 /// <summary>
-/// A persistent, protocol-agnostic byte stream connection.
+/// Defines a persistent, protocol-agnostic byte stream connection.
+/// </summary>
+/// <remarks>
 /// Owns transport configuration and manages reconnection.
 /// <see cref="BaseStream"/> may block during reconnection gaps.
-/// </summary>
+/// </remarks>
 public interface IConnection : IAsyncDisposable
 {
     /// <summary>
