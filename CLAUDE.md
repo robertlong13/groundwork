@@ -141,3 +141,25 @@ commands, port conventions, and flight sequences.
   plain hyphens (`-` or `--`), straight quotes, and XML/language escapes for
   special characters. Enforced by `scripts/check_ascii.py` (runs in CI and
   pre-push hook).
+
+## Unit Testing
+
+- **MavChannel/MavLinkParser disposal in tests:** `MavLinkParser.Dispose()`
+  synchronously blocks until its parse loop's `ReadPacket` returns.
+  `ReadPacket` does a blocking `Stream.Read`, so the pipe writer **must** be
+  completed before disposing MavChannel -- otherwise the test deadlocks.
+  In production, `LinkManager` tears down the connection first; in tests,
+  call `pipe.Writer.Complete()` (or `_connection.Writer.Complete()`) before
+  channel disposal. Pending a pymavlink generator PR for `ReadPacketAsync`
+  to allow cancellation-token-based interruption.
+
+## Pre-PR Review
+
+When asked to "review the branch" or similar before a PR:
+
+1. **Scope**: `git log main..HEAD` and `git diff main..HEAD` to understand the full branch
+2. **Commit messages**: accuracy, appropriate detail, no conversation leakage (session chatter, "we discussed", milestone refs)
+3. **Stale artifacts**: Read all changed files in full (not just diffs). Look for dead comments, outdated docstrings, unused fields/parameters left from intermediate iterations
+4. **Code smell**: Lock discipline, naming consistency, patterns matching the rest of the codebase, anything that smells like two authors disagreeing across revisions
+5. **Docstring and comment audit**. Check all newly introduced docstrings for style. Checklists: `docs/csharp-docstring-audit.md`, `docs/python-docstring-audit.md`
+6. **Verdict**: Summarize findings honestly. "Clean" is a valid answer
