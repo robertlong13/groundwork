@@ -131,10 +131,7 @@ public sealed class FtpClient
         // 4. Gap fill.
         if (!tracker.IsComplete(fileSize))
         {
-            _logger.LogDebug(
-                "FTP: burst complete, {Gaps} gaps remaining",
-                tracker.GapCount(fileSize)
-            );
+            _logger.LogDebug("FTP: burst complete, starting gap fill");
 
             await GapFillAsync(ftpResponses, session, buffer, tracker, fileSize, progress, ct)
                 .ConfigureAwait(false);
@@ -329,58 +326,62 @@ public sealed class FtpClient
         var lastProgressTime = Environment.TickCount64;
         int lastProgress = 0;
 
+        var burstDone = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+
+        using var sub = responses
+            .Where(r =>
+                r.Session == session
+                && (
+                    r.ReqOpcode == MAVLink.MAV_FTP_OPCODE.BURSTREADFILE
+                    || r.ReqOpcode == MAVLink.MAV_FTP_OPCODE.READFILE
+                )
+            )
+            .Subscribe(
+                r =>
+                {
+                    if (r.IsAck && r.Size > 0)
+                    {
+                        var offset = (int)r.Offset;
+                        var length = Math.Min(r.Size, buffer.Length - offset);
+                        if (offset >= 0 && offset < buffer.Length && length > 0)
+                        {
+                            r.Data[..length].CopyTo(buffer.AsSpan(offset));
+                            tracker.MarkReceived(offset, length);
+                            progress?.Report((tracker.TotalReceived, buffer.Length));
+                        }
+                    }
+
+                    // Burst ends on burst_complete flag or any NAK.
+                    if (r.BurstComplete || r.IsNak)
+                    {
+                        if (r.IsNak && r.NakError == MAVLink.MAV_FTP_ERR.EOF)
+                        {
+                            // ArduPilot bug: NAK offset can be wrong (lower
+                            // than actual). Use whichever is higher: NAK
+                            // offset or highest byte we actually received.
+                            var nakOffset = (int)r.Offset;
+                            var highWater = tracker.HighestReceived;
+                            Volatile.Write(ref eofOffset, Math.Max(nakOffset, highWater));
+                            Volatile.Write(ref gotEof, 1);
+                        }
+
+                        burstDone.TrySetResult();
+                    }
+                },
+                ex => burstDone.TrySetException(ex)
+            );
+
         // Loop: ArduPilot caps bursts (e.g. 2000 packets). A burst_complete
         // with no EOF NAK means "send another burst from where we left off."
         while (Volatile.Read(ref gotEof) == 0)
         {
-            var burstDone = new TaskCompletionSource(
+            burstDone = new TaskCompletionSource(
                 TaskCreationOptions.RunContinuationsAsynchronously
             );
 
             using var registration = ct.Register(() => burstDone.TrySetCanceled(ct));
-
-            using var sub = responses
-                .Where(r =>
-                    r.Session == session
-                    && (
-                        r.ReqOpcode == MAVLink.MAV_FTP_OPCODE.BURSTREADFILE
-                        || r.ReqOpcode == MAVLink.MAV_FTP_OPCODE.READFILE
-                    )
-                )
-                .Subscribe(
-                    r =>
-                    {
-                        if (r.IsAck && r.Size > 0)
-                        {
-                            var offset = (int)r.Offset;
-                            var length = Math.Min(r.Size, buffer.Length - offset);
-                            if (offset >= 0 && offset < buffer.Length && length > 0)
-                            {
-                                r.Data[..length].CopyTo(buffer.AsSpan(offset));
-                                tracker.MarkReceived(offset, length);
-                                progress?.Report((tracker.TotalReceived, buffer.Length));
-                            }
-                        }
-
-                        // Burst ends on burst_complete flag or any NAK.
-                        if (r.BurstComplete || r.IsNak)
-                        {
-                            if (r.IsNak && r.NakError == MAVLink.MAV_FTP_ERR.EOF)
-                            {
-                                // ArduPilot bug: NAK offset can be wrong (lower
-                                // than actual). Use whichever is higher: NAK
-                                // offset or highest byte we actually received.
-                                var nakOffset = (int)r.Offset;
-                                var highWater = tracker.HighestReceived;
-                                Volatile.Write(ref eofOffset, Math.Max(nakOffset, highWater));
-                                Volatile.Write(ref gotEof, 1);
-                            }
-
-                            burstDone.TrySetResult();
-                        }
-                    },
-                    ex => burstDone.TrySetException(ex)
-                );
 
             _logger.LogDebug("FTP: burst read from offset {Offset}", nextOffset);
 
@@ -456,6 +457,7 @@ public sealed class FtpClient
 
         // Track offsets with requests in flight to avoid duplicate sends.
         var pending = new ConcurrentDictionary<int, byte>();
+        // Advances through gaps; GetGapsFrom wraps around to revisit earlier gaps.
         int cursor = 0;
 
         using var sub = responses
@@ -534,7 +536,7 @@ public sealed class FtpClient
                 throw new TimeoutException(
                     $"FTP gap fill stalled for {_stallTimeout.TotalSeconds}s"
                         + $" ({tracker.TotalReceived}/{fileSize} bytes,"
-                        + $" {tracker.GapCount(fileSize)} gaps remaining)"
+                        + $" {tracker.GetGapsFrom(0, fileSize).Count} gaps remaining)"
                 );
             }
 
@@ -555,9 +557,7 @@ public sealed class FtpClient
         CancellationToken ct
     )
     {
-        // Snapshot gaps to avoid iterating RangeTracker while it may be
-        // mutated by a response arriving on the parser thread.
-        foreach (var (offset, length) in tracker.EnumerateGapsFrom(cursor, fileSize).ToList())
+        foreach (var (offset, length) in tracker.GetGapsFrom(cursor, fileSize, MaxInFlight))
         {
             if (pending.Count >= MaxInFlight)
                 break;
@@ -584,9 +584,10 @@ public sealed class FtpClient
                     ct: ct
                 );
 
-                cursor = pos + chunkSize;
                 pos += chunkSize;
             }
+
+            cursor = pos;
         }
     }
 
