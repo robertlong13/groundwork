@@ -115,22 +115,7 @@ foreach (var descriptor in linkDescriptors)
     }
 }
 
-// Cancel the REPL when all channels' message streams have completed (EOF on tlog).
-var activeChannels = channelRegistry.Count;
 var completionSubs = new List<IDisposable>();
-foreach (var channel in channelRegistry.Channels)
-{
-    completionSubs.Add(
-        channel.Messages.Subscribe(
-            onNext: static _ => { },
-            onCompleted: () =>
-            {
-                if (Interlocked.Decrement(ref activeChannels) <= 0)
-                    cts.Cancel();
-            }
-        )
-    );
-}
 
 var discoverySub = registry.Discovered.Subscribe(v =>
     Console.WriteLine($"Vehicle discovered: sysid {v.SysId} ({v.CanonicalState.Type})")
