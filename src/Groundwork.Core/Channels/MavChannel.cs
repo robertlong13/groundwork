@@ -456,6 +456,23 @@ public sealed class MavChannel : IDisposable
             // Expected on shutdown.
         }
 
+        // Detach from vehicles before tearing down the parser. Vehicles
+        // that lose their last channel are removed from the registry.
+        foreach (var (sysId, vehicle) in _vehicles)
+        {
+            vehicle.RemoveChannel(this);
+            if (_vehicleRegistry.RemoveIfOrphaned(vehicle.Uid))
+            {
+                _logger.LogInformation(
+                    "{Name}: vehicle sysid={Sysid} removed (last channel closed)",
+                    Name,
+                    sysId
+                );
+            }
+        }
+
+        _vehicles.Clear();
+
         _parser.Dispose();
         _parserSubscription.Dispose();
         _messages.Dispose();

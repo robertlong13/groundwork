@@ -23,7 +23,7 @@ namespace Groundwork.Core.Vehicles;
 /// </summary>
 public class Vehicle
 {
-    private readonly HashSet<MavChannel> _channels = new();
+    private readonly List<MavChannel> _channels = new();
     private readonly Dictionary<MavChannel, IDisposable> _paramSubs = new();
     private readonly Dictionary<MavChannel, IDisposable> _missionSubs = new();
     private readonly Dictionary<MavChannel, IDisposable> _homeSubs = new();
@@ -36,6 +36,7 @@ public class Vehicle
     private readonly ILogger _logger;
     private readonly Lock _lock = new();
     private readonly ArduPilot.ParamMetadataFetcher? _metadataFetcher;
+    private MavChannel? _pinnedPrimaryChannel;
 
     public Vehicle(
         ulong uid,
@@ -69,18 +70,41 @@ public class Vehicle
     /// <summary>
     /// Gets the primary channel for this vehicle, through which outbound commands are routed.
     /// </summary>
+    /// <remarks>
+    /// Returns the pinned channel if set, otherwise the first available channel.
+    /// </remarks>
     public MavChannel PrimaryChannel
     {
         get
         {
             lock (_lock)
             {
-                // TODO: channel selection strategy (manual/auto).
+                if (_pinnedPrimaryChannel is not null)
+                    return _pinnedPrimaryChannel;
+
                 foreach (var ch in _channels)
                     return ch;
-                // Constructor guarantees at least one channel.
+
                 throw new InvalidOperationException("Vehicle has no channels");
             }
+        }
+    }
+
+    /// <summary>
+    /// Pins the primary channel for outbound command routing.
+    /// </summary>
+    /// <remarks>
+    /// Pass <see langword="null"/> to revert to automatic selection.
+    /// </remarks>
+    /// <exception cref="ArgumentException">The channel is not associated with this vehicle.</exception>
+    public void SetPrimaryChannel(MavChannel? channel)
+    {
+        lock (_lock)
+        {
+            if (channel is not null && !_channels.Contains(channel))
+                throw new ArgumentException("Channel is not associated with this vehicle");
+
+            _pinnedPrimaryChannel = channel;
         }
     }
 
@@ -689,8 +713,9 @@ public class Vehicle
     {
         lock (_lock)
         {
-            if (!_channels.Add(channel))
+            if (_channels.Contains(channel))
                 return;
+            _channels.Add(channel);
         }
 
         var paramSub = channel
@@ -785,6 +810,8 @@ public class Vehicle
         lock (_lock)
         {
             _channels.Remove(channel);
+            if (_pinnedPrimaryChannel == channel)
+                _pinnedPrimaryChannel = null;
             _paramSubs.Remove(channel, out paramSub);
             _missionSubs.Remove(channel, out missionSub);
             _homeSubs.Remove(channel, out homeSub);

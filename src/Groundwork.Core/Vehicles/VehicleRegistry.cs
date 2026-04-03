@@ -8,7 +8,6 @@
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 
-using System.Collections.Concurrent;
 using Groundwork.Core.Channels;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -20,7 +19,8 @@ namespace Groundwork.Core.Vehicles;
 /// </summary>
 public class VehicleRegistry
 {
-    private readonly ConcurrentDictionary<ulong, Vehicle> _vehicles = new();
+    private readonly OrderedDictionary<ulong, Vehicle> _vehicles = new();
+    private readonly Lock _lock = new();
     private readonly ILoggerFactory _loggerFactory;
     private readonly IReadOnlyDictionary<MAVLink.MAV_DATA_STREAM, int>? _defaultStreamRates;
     private readonly ArduPilot.ParamMetadataFetcher? _metadataFetcher;
@@ -41,23 +41,60 @@ public class VehicleRegistry
     /// </summary>
     public Vehicle GetOrCreate(ulong uid, byte sysId, MavChannel channel)
     {
-        return _vehicles.GetOrAdd(
-            uid,
-            _ => new Vehicle(
+        lock (_lock)
+        {
+            if (_vehicles.TryGetValue(uid, out var existing))
+                return existing;
+
+            var vehicle = new Vehicle(
                 uid,
                 sysId,
                 channel,
                 _loggerFactory,
                 _defaultStreamRates,
                 _metadataFetcher
-            )
-        );
+            );
+            _vehicles[uid] = vehicle;
+            return vehicle;
+        }
+    }
+
+    /// <summary>
+    /// Removes a vehicle only if it has no remaining channels.
+    /// </summary>
+    /// <returns><see langword="true"/> if the vehicle was removed.</returns>
+    public bool RemoveIfOrphaned(ulong uid)
+    {
+        lock (_lock)
+        {
+            if (!_vehicles.TryGetValue(uid, out var vehicle))
+                return false;
+            if (vehicle.Channels.Count > 0)
+                return false;
+            _vehicles.Remove(uid);
+            return true;
+        }
     }
 
     public Vehicle? TryGet(ulong uid)
     {
-        return _vehicles.TryGetValue(uid, out var vehicle) ? vehicle : null;
+        lock (_lock)
+        {
+            return _vehicles.TryGetValue(uid, out var vehicle) ? vehicle : null;
+        }
     }
 
-    public IEnumerable<Vehicle> Vehicles => _vehicles.Values;
+    /// <summary>
+    /// Gets all vehicles in discovery order.
+    /// </summary>
+    public IReadOnlyList<Vehicle> Vehicles
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _vehicles.Values.ToList();
+            }
+        }
+    }
 }
