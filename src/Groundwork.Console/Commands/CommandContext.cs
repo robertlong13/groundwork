@@ -48,7 +48,27 @@ public sealed class CommandContext(
     public CancellationToken ShutdownToken { get; } = shutdownToken;
 
     /// <summary>
-    /// Gets the currently active vehicle, or <see langword="null"/> if none have been discovered.
+    /// Gets or sets the currently active vehicle.
     /// </summary>
-    public Vehicle? CurrentVehicle => VehicleRegistry.Vehicles.FirstOrDefault();
+    /// <remarks>
+    /// Falls back to the first discovered vehicle when no explicit selection
+    /// has been made. Clears a stale selection if the vehicle is no longer
+    /// in the registry.
+    /// </remarks>
+    public Vehicle? CurrentVehicle
+    {
+        get
+        {
+            if (
+                _selectedVehicle is not null
+                && VehicleRegistry.TryGet(_selectedVehicle.Uid) is null
+            )
+                _selectedVehicle = null;
+
+            return _selectedVehicle ?? VehicleRegistry.Vehicles.FirstOrDefault();
+        }
+        set => _selectedVehicle = value;
+    }
+
+    private Vehicle? _selectedVehicle;
 }
