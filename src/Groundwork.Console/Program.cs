@@ -132,6 +132,11 @@ foreach (var channel in channelRegistry.Channels)
     );
 }
 
+var discoverySub = registry.Discovered.Subscribe(v =>
+    Console.WriteLine($"Vehicle discovered: sysid {v.SysId} ({v.CanonicalState.Type})")
+);
+completionSubs.Add(discoverySub);
+
 // -- REPL setup --
 
 var commands = new CommandRegistry();

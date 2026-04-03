@@ -8,6 +8,7 @@
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 
+using System.Reactive.Subjects;
 using Groundwork.Core.Channels;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -20,6 +21,7 @@ namespace Groundwork.Core.Vehicles;
 public class VehicleRegistry
 {
     private readonly OrderedDictionary<ulong, Vehicle> _vehicles = new();
+    private readonly Subject<Vehicle> _discovered = new();
     private readonly Lock _lock = new();
     private readonly ILoggerFactory _loggerFactory;
     private readonly IReadOnlyDictionary<MAVLink.MAV_DATA_STREAM, int>? _defaultStreamRates;
@@ -41,12 +43,13 @@ public class VehicleRegistry
     /// </summary>
     public Vehicle GetOrCreate(ulong uid, byte sysId, MavChannel channel)
     {
+        Vehicle vehicle;
         lock (_lock)
         {
             if (_vehicles.TryGetValue(uid, out var existing))
                 return existing;
 
-            var vehicle = new Vehicle(
+            vehicle = new Vehicle(
                 uid,
                 sysId,
                 channel,
@@ -55,8 +58,10 @@ public class VehicleRegistry
                 _metadataFetcher
             );
             _vehicles[uid] = vehicle;
-            return vehicle;
         }
+
+        _discovered.OnNext(vehicle);
+        return vehicle;
     }
 
     /// <summary>
@@ -83,6 +88,11 @@ public class VehicleRegistry
             return _vehicles.TryGetValue(uid, out var vehicle) ? vehicle : null;
         }
     }
+
+    /// <summary>
+    /// Gets the hot observable that fires when a new vehicle is discovered.
+    /// </summary>
+    public IObservable<Vehicle> Discovered => _discovered;
 
     /// <summary>
     /// Gets all vehicles in discovery order.
