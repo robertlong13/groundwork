@@ -41,11 +41,11 @@ public sealed class CommandContext(
     public ILoggerFactory LoggerFactory { get; } = loggerFactory;
 
     /// <summary>
-    /// Gets the output destination for command responses.
+    /// Gets or sets the output destination for command responses.
     /// </summary>
-    public TextWriter Output { get; } = output;
+    public TextWriter Output { get; set; } = output;
 
-    public CancellationToken ShutdownToken { get; } = shutdownToken;
+    public CancellationToken ShutdownToken { get; set; } = shutdownToken;
 
     /// <summary>
     /// Gets or sets the currently active vehicle.

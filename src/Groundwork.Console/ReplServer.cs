@@ -12,8 +12,6 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using Groundwork.Console.Commands;
-using Groundwork.Core.Channels;
-using Groundwork.Core.Vehicles;
 using Microsoft.Extensions.Logging;
 
 namespace Groundwork.Console;
@@ -29,29 +27,22 @@ public sealed class ReplServer : IAsyncDisposable
 {
     private readonly TcpListener _listener;
     private readonly CommandRegistry _commands;
-    private readonly VehicleRegistry _vehicleRegistry;
-    private readonly MavChannelRegistry _channelRegistry;
-    private readonly LinkManager _links;
-    private readonly ILoggerFactory _loggerFactory;
+    private readonly CommandContext _ctx;
     private readonly ILogger<ReplServer> _logger;
     private readonly CancellationTokenSource _cts = new();
     private readonly ConcurrentDictionary<Task, byte> _clientTasks = new();
     private readonly Task _acceptLoop;
+    private int _activeClients;
 
     public ReplServer(
         int port,
         CommandRegistry commands,
-        VehicleRegistry vehicleRegistry,
-        MavChannelRegistry channelRegistry,
-        LinkManager links,
+        CommandContext ctx,
         ILoggerFactory loggerFactory
     )
     {
         _commands = commands;
-        _vehicleRegistry = vehicleRegistry;
-        _channelRegistry = channelRegistry;
-        _links = links;
-        _loggerFactory = loggerFactory;
+        _ctx = ctx;
         _logger = loggerFactory.CreateLogger<ReplServer>();
 
         _listener = new TcpListener(IPAddress.Loopback, port);
@@ -87,6 +78,13 @@ public sealed class ReplServer : IAsyncDisposable
             {
                 var client = await _listener.AcceptTcpClientAsync(ct).ConfigureAwait(false);
 
+                if (Interlocked.CompareExchange(ref _activeClients, 1, 0) != 0)
+                {
+                    _logger.LogDebug("Rejecting remote client: another session is active");
+                    client.Dispose();
+                    continue;
+                }
+
                 var task = HandleClientAsync(client, ct);
                 _clientTasks.TryAdd(task, 0);
                 _ = task.ContinueWith(t => _clientTasks.TryRemove(t, out _), TaskScheduler.Default);
@@ -114,14 +112,10 @@ public sealed class ReplServer : IAsyncDisposable
             var reader = new StreamReader(stream);
             var writer = new StreamWriter(stream) { AutoFlush = true };
 
-            var ctx = new CommandContext(
-                _vehicleRegistry,
-                _channelRegistry,
-                _links,
-                _loggerFactory,
-                writer,
-                ct
-            );
+            var previousOutput = _ctx.Output;
+            var previousToken = _ctx.ShutdownToken;
+            _ctx.Output = writer;
+            _ctx.ShutdownToken = ct;
 
             _logger.LogDebug(
                 "Remote client connected from {Endpoint}",
@@ -178,7 +172,7 @@ public sealed class ReplServer : IAsyncDisposable
                         try
                         {
                             await match
-                                .Value.Command.ExecuteAsync(match.Value.Args, ctx)
+                                .Value.Command.ExecuteAsync(match.Value.Args, _ctx)
                                 .ConfigureAwait(false);
                         }
                         catch (TimeoutException)
@@ -208,8 +202,14 @@ public sealed class ReplServer : IAsyncDisposable
             {
                 // Client disconnected mid-read/write.
             }
+            finally
+            {
+                _ctx.Output = previousOutput;
+                _ctx.ShutdownToken = previousToken;
+            }
         }
 
+        Interlocked.Exchange(ref _activeClients, 0);
         _logger.LogDebug("Remote client disconnected");
     }
 }

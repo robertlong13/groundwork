@@ -7,7 +7,6 @@ remote REPL connections.
 """
 
 import os
-import socket
 import subprocess
 import sys
 import time
@@ -161,19 +160,6 @@ def console(repo_root, mav):
         stderr=subprocess.DEVNULL,
     )
 
-    # Wait for the remote REPL port to accept connections.
-    deadline = time.monotonic() + 30
-    while time.monotonic() < deadline:
-        try:
-            s = socket.create_connection(("127.0.0.1", REMOTE_PORT), timeout=1)
-            s.close()
-            break
-        except OSError:
-            time.sleep(0.5)
-    else:
-        proc.kill()
-        raise RuntimeError(f"Groundwork.Console did not open remote port {REMOTE_PORT} within 30s")
-
     yield proc
 
     # Graceful shutdown: close stdin so the REPL exits.
@@ -198,16 +184,23 @@ def gw_ready(console, vehicle_ready):
     processed heartbeats on its own link yet. Poll the REPL until
     ``overview`` reports a vehicle.
     """
-    client = ReplClient(port=REMOTE_PORT)
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
-        lines = client.send_multi("overview")
-        text = "\n".join(lines)
-        if "No vehicle connected" not in text:
-            client.close()
-            return
+        try:
+            client = ReplClient(port=REMOTE_PORT)
+        except (ConnectionError, OSError):
+            time.sleep(1)
+            continue
+        try:
+            lines = client.send_multi("overview")
+            text = "\n".join(lines)
+            if "No vehicle connected" not in text:
+                client.close()
+                return
+        except (ConnectionError, OSError):
+            pass
+        client.close()
         time.sleep(0.5)
-    client.close()
     raise RuntimeError("Groundwork.Console did not discover a vehicle within 30s")
 
 
