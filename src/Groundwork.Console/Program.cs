@@ -155,6 +155,7 @@ new FlightModule().Register(commands);
 new ParamModule().Register(commands);
 new RcModule(cts.Token).Register(commands);
 new LinkModule().Register(commands);
+new VehicleModule().Register(commands);
 new WpModule().Register(commands);
 new FtpModule().Register(commands);
 new DiagModule().Register(commands);

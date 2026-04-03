@@ -94,7 +94,18 @@ public sealed class LinkModule
         }
 
         var name = channels[index].Name;
+        var vehicleBefore = ctx.CurrentVehicle;
+
         await ctx.Links.RemoveAsync(index);
         ctx.Output.WriteLine($"Removed: {name}");
+
+        var vehicleAfter = ctx.CurrentVehicle;
+        if (vehicleBefore is not null && vehicleAfter != vehicleBefore)
+        {
+            if (vehicleAfter is null)
+                ctx.Output.WriteLine("Active vehicle disconnected");
+            else
+                ctx.Output.WriteLine("Active vehicle changed");
+        }
     }
 }
