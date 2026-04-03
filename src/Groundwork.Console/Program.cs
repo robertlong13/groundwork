@@ -115,12 +115,9 @@ foreach (var descriptor in linkDescriptors)
     }
 }
 
-var completionSubs = new List<IDisposable>();
-
 var discoverySub = registry.Discovered.Subscribe(v =>
     Console.WriteLine($"Vehicle discovered: sysid {v.SysId} ({v.CanonicalState.Type})")
 );
-completionSubs.Add(discoverySub);
 
 // -- REPL setup --
 
@@ -153,7 +150,7 @@ commands.Register("help", new HelpCommand(commands));
 // -- Remote REPL socket (opt-in via --repl-remote <port>) --
 
 ReplServer? remoteServer = remotePort.HasValue
-    ? new ReplServer(remotePort.Value, commands, registry, channelRegistry, links, loggerFactory)
+    ? new ReplServer(remotePort.Value, commands, commandCtx, loggerFactory)
     : null;
 
 Console.WriteLine("Type 'help' for commands, 'exit' to quit.");
@@ -241,8 +238,7 @@ while (!cts.Token.IsCancellationRequested)
     }
 }
 
-foreach (var sub in completionSubs)
-    sub.Dispose();
+discoverySub.Dispose();
 
 if (remoteServer is not null)
     await remoteServer.DisposeAsync();
