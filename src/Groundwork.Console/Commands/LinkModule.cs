@@ -43,14 +43,16 @@ public sealed class LinkModule
 
     private static Task List(CommandContext ctx)
     {
-        if (ctx.Links.Count == 0)
+        var channels = ctx.ChannelRegistry.Channels;
+
+        if (channels.Count == 0)
         {
             ctx.Output.WriteLine("No active links");
             return Task.CompletedTask;
         }
 
-        for (var i = 0; i < ctx.Links.Count; i++)
-            ctx.Output.WriteLine($"  {i}: {ctx.Links.GetChannel(i).Name}");
+        for (var i = 0; i < channels.Count; i++)
+            ctx.Output.WriteLine($"  {i}: {channels[i].Name}");
 
         return Task.CompletedTask;
     }
@@ -83,13 +85,15 @@ public sealed class LinkModule
             return;
         }
 
-        if (index < 0 || index >= ctx.Links.Count)
+        var channels = ctx.ChannelRegistry.Channels;
+
+        if (index < 0 || index >= channels.Count)
         {
             ctx.Output.WriteLine($"Invalid link index: {index}");
             return;
         }
 
-        var name = ctx.Links.GetChannel(index).Name;
+        var name = channels[index].Name;
         await ctx.Links.RemoveAsync(index);
         ctx.Output.WriteLine($"Removed: {name}");
     }

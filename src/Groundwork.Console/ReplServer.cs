@@ -12,6 +12,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using Groundwork.Console.Commands;
+using Groundwork.Core.Channels;
 using Groundwork.Core.Vehicles;
 using Microsoft.Extensions.Logging;
 
@@ -29,6 +30,7 @@ public sealed class ReplServer : IAsyncDisposable
     private readonly TcpListener _listener;
     private readonly CommandRegistry _commands;
     private readonly VehicleRegistry _vehicleRegistry;
+    private readonly MavChannelRegistry _channelRegistry;
     private readonly LinkManager _links;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<ReplServer> _logger;
@@ -40,12 +42,14 @@ public sealed class ReplServer : IAsyncDisposable
         int port,
         CommandRegistry commands,
         VehicleRegistry vehicleRegistry,
+        MavChannelRegistry channelRegistry,
         LinkManager links,
         ILoggerFactory loggerFactory
     )
     {
         _commands = commands;
         _vehicleRegistry = vehicleRegistry;
+        _channelRegistry = channelRegistry;
         _links = links;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<ReplServer>();
@@ -110,7 +114,14 @@ public sealed class ReplServer : IAsyncDisposable
             var reader = new StreamReader(stream);
             var writer = new StreamWriter(stream) { AutoFlush = true };
 
-            var ctx = new CommandContext(_vehicleRegistry, _links, _loggerFactory, writer, ct);
+            var ctx = new CommandContext(
+                _vehicleRegistry,
+                _channelRegistry,
+                _links,
+                _loggerFactory,
+                writer,
+                ct
+            );
 
             _logger.LogDebug(
                 "Remote client connected from {Endpoint}",

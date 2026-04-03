@@ -18,32 +18,25 @@ namespace Groundwork.Console;
 /// <summary>
 /// Provides lifecycle management for connection and channel pairs.
 /// </summary>
-// TODO: This class currently doubles as a channel registry (Count,
-// Channels, GetChannel) because nothing else fills that role yet.
-// When multi-connection lands, MavChannelRegistry in Core should
-// become the single source of truth for "what channels exist", and
-// LinkManager should shrink to just orchestration: parse descriptor,
-// open, create channel, register with Core, tear down in the right
-// order.
 public sealed class LinkManager : IAsyncDisposable
 {
     private readonly List<(IConnection Connection, MavChannel Channel)> _links = new();
+    private readonly MavChannelRegistry _channelRegistry;
     private readonly VehicleRegistry _registry;
     private readonly ILoggerFactory _loggerFactory;
 
-    public LinkManager(VehicleRegistry registry, ILoggerFactory loggerFactory)
+    public LinkManager(
+        MavChannelRegistry channelRegistry,
+        VehicleRegistry registry,
+        ILoggerFactory loggerFactory
+    )
     {
+        _channelRegistry = channelRegistry;
         _registry = registry;
         _loggerFactory = loggerFactory;
     }
 
-    public int Count => _links.Count;
-
-    public MavChannel GetChannel(int index) => _links[index].Channel;
-
     public IConnection GetConnection(int index) => _links[index].Connection;
-
-    public IEnumerable<MavChannel> Channels => _links.Select(static l => l.Channel);
 
     /// <summary>
     /// Parses a connection descriptor, opens the connection, wraps it in
@@ -77,6 +70,7 @@ public sealed class LinkManager : IAsyncDisposable
             channel.StartHeartbeat();
 
         _links.Add((connection, channel));
+        _channelRegistry.Add(channel);
         return channel;
     }
 
@@ -92,6 +86,7 @@ public sealed class LinkManager : IAsyncDisposable
 
         var (connection, channel) = _links[index];
         _links.RemoveAt(index);
+        _channelRegistry.Remove(channel);
 
         // Connection first: closing the connection EOFs the pipe stream,
         // which unblocks the parser's synchronous ReadPacket. If the
@@ -106,6 +101,7 @@ public sealed class LinkManager : IAsyncDisposable
         // Connection before channel -- see RemoveAsync comment.
         for (var i = _links.Count - 1; i >= 0; i--)
         {
+            _channelRegistry.Remove(_links[i].Channel);
             await _links[i].Connection.DisposeAsync().ConfigureAwait(false);
             _links[i].Channel.Dispose();
         }

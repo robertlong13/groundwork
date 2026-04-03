@@ -99,7 +99,8 @@ var registry = new VehicleRegistry(
     metadataFetcher
 );
 
-await using var links = new LinkManager(registry, loggerFactory);
+var channelRegistry = new Groundwork.Core.Channels.MavChannelRegistry();
+await using var links = new LinkManager(channelRegistry, registry, loggerFactory);
 
 foreach (var descriptor in linkDescriptors)
 {
@@ -115,9 +116,9 @@ foreach (var descriptor in linkDescriptors)
 }
 
 // Cancel the REPL when all channels' message streams have completed (EOF on tlog).
-var activeChannels = links.Count;
+var activeChannels = channelRegistry.Count;
 var completionSubs = new List<IDisposable>();
-foreach (var channel in links.Channels)
+foreach (var channel in channelRegistry.Channels)
 {
     completionSubs.Add(
         channel.Messages.Subscribe(
@@ -134,7 +135,14 @@ foreach (var channel in links.Channels)
 // -- REPL setup --
 
 var commands = new CommandRegistry();
-var commandCtx = new CommandContext(registry, links, loggerFactory, Console.Out, cts.Token);
+var commandCtx = new CommandContext(
+    registry,
+    channelRegistry,
+    links,
+    loggerFactory,
+    Console.Out,
+    cts.Token
+);
 
 new ArmModule().Register(commands);
 new ModeModule().Register(commands);
@@ -154,7 +162,7 @@ commands.Register("help", new HelpCommand(commands));
 // -- Remote REPL socket (opt-in via --repl-remote <port>) --
 
 ReplServer? remoteServer = remotePort.HasValue
-    ? new ReplServer(remotePort.Value, commands, registry, links, loggerFactory)
+    ? new ReplServer(remotePort.Value, commands, registry, channelRegistry, links, loggerFactory)
     : null;
 
 Console.WriteLine("Type 'help' for commands, 'exit' to quit.");
