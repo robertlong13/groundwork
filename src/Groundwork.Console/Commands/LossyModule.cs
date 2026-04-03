@@ -87,14 +87,14 @@ public sealed class LossyModule
 
     private static Task Status(string[] args, CommandContext ctx)
     {
-        if (ctx.Links.Count == 0)
+        if (ctx.ChannelRegistry.Count == 0)
         {
             ctx.Output.WriteLine("No active links");
             return Task.CompletedTask;
         }
 
         int start = 0,
-            end = ctx.Links.Count;
+            end = ctx.ChannelRegistry.Count;
         if (args.Length > 0 && int.TryParse(args[0], out var idx))
         {
             if (!ValidIndex(idx, ctx))
@@ -103,12 +103,15 @@ public sealed class LossyModule
             end = idx + 1;
         }
 
+        // Connection index from LinkManager and channel index from
+        // ChannelRegistry are kept in sync by LinkManager being the
+        // sole mutator of both lists.
         for (var i = start; i < end; i++)
         {
             var lossy = ctx.Links.GetConnection(i) as LossyConnection;
             if (lossy is null)
             {
-                ctx.Output.WriteLine($"  {i}: {ctx.Links.GetChannel(i).Name} (not lossy)");
+                ctx.Output.WriteLine($"  {i}: {ctx.ChannelRegistry.Channels[i].Name} (not lossy)");
                 continue;
             }
 
@@ -202,7 +205,7 @@ public sealed class LossyModule
             if (!ValidIndex(index, ctx))
                 return false;
         }
-        else if (ctx.Links.Count == 0)
+        else if (ctx.ChannelRegistry.Count == 0)
         {
             ctx.Output.WriteLine("No active links");
             return false;
@@ -264,7 +267,7 @@ public sealed class LossyModule
 
     private static bool ValidIndex(int index, CommandContext ctx)
     {
-        if (index < 0 || index >= ctx.Links.Count)
+        if (index < 0 || index >= ctx.ChannelRegistry.Count)
         {
             ctx.Output.WriteLine($"Invalid link index: {index}");
             return false;

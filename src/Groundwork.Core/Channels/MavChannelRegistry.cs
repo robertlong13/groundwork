@@ -11,19 +11,59 @@
 namespace Groundwork.Core.Channels;
 
 /// <summary>
-/// TODO: Registry of all active <see cref="MavChannel"/>s. Currently
-/// unused -- placeholder for multi-connection. Console's LinkManager
-/// fills this role for now. This becomes the Core-level single source
-/// of truth when routing, failover, and GUI all need a global channel
-/// view.
+/// Provides the single source of truth for all active <see cref="MavChannel"/>s.
 /// </summary>
 public class MavChannelRegistry
 {
     private readonly List<MavChannel> _channels = new();
+    private readonly Lock _lock = new();
 
-    public void Add(MavChannel channel) => _channels.Add(channel);
+    public int Count
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _channels.Count;
+            }
+        }
+    }
 
-    public void Remove(MavChannel channel) => _channels.Remove(channel);
+    public int IndexOf(MavChannel channel)
+    {
+        lock (_lock)
+        {
+            return _channels.IndexOf(channel);
+        }
+    }
 
-    public IReadOnlyList<MavChannel> Channels => _channels;
+    public void Add(MavChannel channel)
+    {
+        lock (_lock)
+        {
+            _channels.Add(channel);
+        }
+    }
+
+    public void Remove(MavChannel channel)
+    {
+        lock (_lock)
+        {
+            _channels.Remove(channel);
+        }
+    }
+
+    /// <summary>
+    /// Gets a snapshot of all active channels.
+    /// </summary>
+    public IReadOnlyList<MavChannel> Channels
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _channels.ToList();
+            }
+        }
+    }
 }

@@ -43,7 +43,7 @@ public sealed class DiagModule
 
     private static Task MsgCounts(CommandContext ctx)
     {
-        var channels = ctx.Links.Channels.ToList();
+        var channels = ctx.ChannelRegistry.Channels.ToList();
 
         if (channels.Count == 0)
         {
@@ -77,7 +77,7 @@ public sealed class DiagModule
 
     private static Task Parser(CommandContext ctx)
     {
-        var channels = ctx.Links.Channels.ToList();
+        var channels = ctx.ChannelRegistry.Channels.ToList();
 
         if (channels.Count == 0)
         {

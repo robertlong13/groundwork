@@ -8,6 +8,7 @@
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 
+using Groundwork.Core.Channels;
 using Groundwork.Core.Vehicles;
 using Microsoft.Extensions.Logging;
 
@@ -18,6 +19,7 @@ namespace Groundwork.Console.Commands;
 /// </summary>
 public sealed class CommandContext(
     VehicleRegistry vehicleRegistry,
+    MavChannelRegistry channelRegistry,
     LinkManager links,
     ILoggerFactory loggerFactory,
     TextWriter output,
@@ -25,6 +27,11 @@ public sealed class CommandContext(
 )
 {
     public VehicleRegistry VehicleRegistry { get; } = vehicleRegistry;
+
+    /// <summary>
+    /// Gets the registry of all active channels.
+    /// </summary>
+    public MavChannelRegistry ChannelRegistry { get; } = channelRegistry;
 
     public LinkManager Links { get; } = links;
 
