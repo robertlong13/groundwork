@@ -96,18 +96,10 @@ Tracked by `scripts/parity.py`. See CLAUDE.md for usage.
 
 ---
 
-### M3: tlog Playback
+### M3: ~~tlog Playback~~ Skipped
 
-**Goal:** Full user-facing log replay with playback controls.
-
-**Exit Criteria:**
-
-- [ ] Same vehicle state model works for replay
-- [ ] Playback controls: play, pause, speed, seek
-- [ ] Console commands: `tlog open <file>`, `tlog play`, `tlog pause`, `tlog speed <multiplier>`, `tlog seek <time>`
-
-M0's `TlogConnection` provides the basic "read messages from file" capability.
-This milestone adds the user-facing playback experience on top.
+Deferred to a late-stage GUI milestone. SITL workflow covers development needs;
+playback controls are a UX concern better addressed alongside the GUI.
 
 ---
 
@@ -115,11 +107,10 @@ This milestone adds the user-facing playback experience on top.
 
 **Exit Criteria:**
 
-- [ ] Multiple simultaneous connections
-- [ ] Configurable routing (sysid-based and explicit)
-- [ ] Redundant link handling (same vehicle, multiple connections)
-- [ ] Multi-vehicle support (different sysids)
-- [ ] Console commands: `link add <uri>`, `link remove`, `link list`, `vehicle list`, `vehicle select`
+- [x] Multiple simultaneous connections
+- [x] Redundant link handling (same vehicle, multiple connections)
+- [x] Multi-vehicle support (different sysids or different links)
+- [x] Console commands: `link add <uri>`, `link remove`, `link list`, `vehicle list`, `vehicle select`, `vehicle link <index>`
 
 ---
 
