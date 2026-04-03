@@ -24,16 +24,19 @@ public sealed class LinkManager : IAsyncDisposable
     private readonly MavChannelRegistry _channelRegistry;
     private readonly VehicleRegistry _registry;
     private readonly ILoggerFactory _loggerFactory;
+    private readonly TlogWriter? _tlogWriter;
 
     public LinkManager(
         MavChannelRegistry channelRegistry,
         VehicleRegistry registry,
-        ILoggerFactory loggerFactory
+        ILoggerFactory loggerFactory,
+        TlogWriter? tlogWriter = null
     )
     {
         _channelRegistry = channelRegistry;
         _registry = registry;
         _loggerFactory = loggerFactory;
+        _tlogWriter = tlogWriter;
     }
 
     public IConnection GetConnection(int index) => _links[index].Connection;
@@ -71,6 +74,7 @@ public sealed class LinkManager : IAsyncDisposable
 
         _links.Add((connection, channel));
         _channelRegistry.Add(channel);
+        _tlogWriter?.AddChannel(channel);
         return channel;
     }
 
@@ -87,6 +91,7 @@ public sealed class LinkManager : IAsyncDisposable
         var (connection, channel) = _links[index];
         _links.RemoveAt(index);
         _channelRegistry.Remove(channel);
+        _tlogWriter?.RemoveChannel(channel);
 
         // Connection first: closing the connection EOFs the pipe stream,
         // which unblocks the parser's synchronous ReadPacket. If the
@@ -101,11 +106,13 @@ public sealed class LinkManager : IAsyncDisposable
         // Connection before channel -- see RemoveAsync comment.
         for (var i = _links.Count - 1; i >= 0; i--)
         {
+            _tlogWriter?.RemoveChannel(_links[i].Channel);
             _channelRegistry.Remove(_links[i].Channel);
             await _links[i].Connection.DisposeAsync().ConfigureAwait(false);
             _links[i].Channel.Dispose();
         }
 
         _links.Clear();
+        _tlogWriter?.Dispose();
     }
 }

@@ -40,6 +40,7 @@ public sealed class MavChannel : IDisposable
     private readonly MavLinkParser _parser;
     private readonly IDisposable _parserSubscription;
     private readonly Subject<MAVLink.MAVLinkMessage> _messages = new();
+    private readonly Subject<byte[]> _txPackets = new();
     private readonly MAVLink.MavlinkParse _generator = new();
     private readonly CancellationTokenSource _cts = new();
     private readonly ConcurrentDictionary<byte, VehicleState> _states = new();
@@ -80,6 +81,11 @@ public sealed class MavChannel : IDisposable
     /// Gets the hot observable of all MAVLink messages received on this channel.
     /// </summary>
     public IObservable<MAVLink.MAVLinkMessage> Messages => _messages;
+
+    /// <summary>
+    /// Gets the hot observable of raw outbound packet bytes sent on this channel.
+    /// </summary>
+    public IObservable<byte[]> TxPackets => _txPackets;
 
     /// <summary>
     /// Gets the vehicle states on this channel, keyed by sysid.
@@ -123,6 +129,7 @@ public sealed class MavChannel : IDisposable
             sysid: GcsSysId,
             compid: GcsCompId
         );
+        _txPackets.OnNext(packet);
         return _connection.SendAsync(packet, ct);
     }
 
@@ -476,6 +483,7 @@ public sealed class MavChannel : IDisposable
         _parser.Dispose();
         _parserSubscription.Dispose();
         _messages.Dispose();
+        _txPackets.Dispose();
         _cts.Dispose();
     }
 

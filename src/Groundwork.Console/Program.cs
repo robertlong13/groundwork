@@ -100,7 +100,15 @@ var registry = new VehicleRegistry(
 );
 
 var channelRegistry = new Groundwork.Core.Channels.MavChannelRegistry();
-await using var links = new LinkManager(channelRegistry, registry, loggerFactory);
+var tlogDir = Path.Combine(
+    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+    "Groundwork",
+    "tlogs"
+);
+Directory.CreateDirectory(tlogDir);
+var tlogPath = Path.Combine(tlogDir, $"{DateTime.Now:yyyy-MM-dd HH-mm-ss}.tlog");
+var tlogWriter = new Groundwork.Core.Channels.TlogWriter(tlogPath);
+await using var links = new LinkManager(channelRegistry, registry, loggerFactory, tlogWriter);
 
 foreach (var descriptor in linkDescriptors)
 {
