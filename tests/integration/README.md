@@ -16,13 +16,17 @@ and default parameters into `tests/integration/sitl/`. Version-tracked via
 
 | Port | Purpose |
 | - | - |
-| 14580 | SITL serial0 -> Groundwork Console (`--link udpin:14580`) |
-| 14590 | SITL serial1 -> pymavlink observer (independent verification) |
+| 14580+ | SITL serial0 -> Groundwork Console (`--link udpin:14580`) |
 | 4242 | Groundwork remote REPL (`--repl-remote 4242`) |
-| 5570 | SITL `--base-port` (serial1=5572, serial2=5573) |
+| 5570 | SITL `--base-port` |
 
 Port 14580 and base-port 5570 avoid colliding with a developer's own SITL
 on the default ports (14550, 5760).
+
+SITL exposes three default tcp servers per instance relative to base-port:
+base+0, base+2, base+3 (offset 1 is skipped). `--instance N` shifts the
+entire set by 10*N, so instance 1 at base-port 5570 uses 5580, 5582, 5583.
+Chain mode connects serial2 to the next instance's serial1 server (base+2).
 
 ## Launching
 
@@ -39,6 +43,23 @@ python scripts/repl_client.py                               # interactive REPL
 `start_sitl.sh` handles the working-directory change internally and bakes
 in port defaults (14580, base-port 5570). Accepts `--port` and
 `--base-port` overrides.
+
+### Multi-vehicle
+
+```bash
+scripts/start_sitl.sh --count 3                            # multi-link (separate ports)
+scripts/start_sitl.sh --count 3 --same-sysid               # same sysid, UID-based identity
+scripts/start_sitl.sh --count 3 --chain                    # single-link daisy chain
+```
+
+Multi-link launches each instance on its own UDP port (14580, 14581, ...),
+connect with `--link udpin:14580 --link udpin:14581 ...`. Chain mode puts
+all vehicles on one link via serial port chaining -- connect with a single
+`--link udpin:14580`.
+
+The `--same-sysid` flag gives all vehicles sysid 1, exercising UID-based
+identity resolution. Only meaningful for multi-link (chain requires unique
+sysids for routing).
 
 When `--repl-remote` is set, Console stays alive after stdin EOF.
 Terminate via `exit` through the TCP socket or Ctrl+C.
