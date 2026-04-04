@@ -218,7 +218,19 @@ def _drain_mav(request):
 
 @pytest.fixture()
 def repl(console):
-    """Per-test remote REPL client."""
-    client = ReplClient(port=REMOTE_PORT)
+    """Per-test remote REPL client.
+
+    Retries briefly because the single-client ReplServer may still be
+    tearing down the previous session when a new test starts.
+    """
+    deadline = time.monotonic() + 5
+    while True:
+        try:
+            client = ReplClient(port=REMOTE_PORT)
+            break
+        except (ConnectionError, OSError):
+            if time.monotonic() > deadline:
+                raise
+            time.sleep(0.2)
     yield client
     client.close()
