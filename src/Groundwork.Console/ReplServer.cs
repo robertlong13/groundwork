@@ -206,10 +206,10 @@ public sealed class ReplServer : IAsyncDisposable
             {
                 _ctx.Output = previousOutput;
                 _ctx.ShutdownToken = previousToken;
+                Interlocked.Exchange(ref _activeClients, 0);
             }
         }
 
-        Interlocked.Exchange(ref _activeClients, 0);
         _logger.LogDebug("Remote client disconnected");
     }
 }
