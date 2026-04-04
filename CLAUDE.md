@@ -158,8 +158,28 @@ commands, port conventions, and flight sequences.
 When asked to "review the branch" or similar before a PR:
 
 1. **Scope**: `git log main..HEAD` and `git diff main..HEAD` to understand the full branch
-2. **Commit messages**: accuracy, appropriate detail, no conversation leakage (session chatter, "we discussed", milestone refs)
-3. **Stale artifacts**: Read all changed files in full (not just diffs). Look for dead comments, outdated docstrings, unused fields/parameters left from intermediate iterations
-4. **Code smell**: Lock discipline, naming consistency, patterns matching the rest of the codebase, anything that smells like two authors disagreeing across revisions
-5. **Docstring and comment audit**. Check all newly introduced docstrings for style. Checklists: `docs/csharp-docstring-audit.md`, `docs/python-docstring-audit.md`
-6. **Verdict**: Summarize findings honestly. "Clean" is a valid answer
+2. **Commit messages**: accuracy, appropriate detail, no conversation leakage
+   (session chatter, "we discussed", milestone refs)
+3. **Command parity** (when the PR introduces or modifies console commands): Run
+   `parity.py` for the affected modules. Verify all new commands match MAVProxy
+   wire behavior (message type, parameter values, edge cases). Confirm all
+   sub-subcommands of any new subcommand are implemented -- the parity tracker
+   only checks presence at the subcommand level, so missing sub-subcommands
+   won't show as gaps. Verify no protocol details remain in Console that should
+   be in Core.
+4. **Stale artifacts**: Read all changed files in full (not just diffs). Look
+   for dead comments, outdated docstrings, unused fields/parameters left from
+   intermediate iterations
+5. **Code audit**: Dead code (unused usings, commented-out code,
+   TODO/HACK/FIXME)? Stray tracked/untracked files? Architecture alignment?
+   License headers on all authored files? Test coverage for important paths?
+6. **Code smell**: Lock discipline, naming consistency, patterns matching the
+   rest of the codebase, anything that smells like two authors disagreeing
+   across revisions
+7. **Docstring and comment audit**: Check all newly introduced docstrings for
+   style (checklists: `docs/csharp-docstring-audit.md`,
+   `docs/python-docstring-audit.md`). Verify summaries still match what the
+   code does. No design rationale in docstrings -- summaries describe "what",
+   not "why we chose this". Remove milestone references, scaffolding notes,
+   and time-bound commentary.
+8. **Verdict**: Summarize findings honestly. "Clean" is a valid answer
