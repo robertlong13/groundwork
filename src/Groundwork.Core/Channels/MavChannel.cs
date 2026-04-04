@@ -522,6 +522,8 @@ public sealed class MavChannel : IDisposable
 
         if (message.sysid == GcsSysId)
         {
+            // This message is, apparently, from us. Don't process it, but do publish the message
+            // to any external subscribers who may be interested.
             _messages.OnNext(message);
             return;
         }
@@ -532,10 +534,16 @@ public sealed class MavChannel : IDisposable
             _states[message.sysid] = state;
         }
 
-        // Only start AUTOPILOT_VERSION negotiation after the first heartbeat,
-        // so VehicleState.Type is populated before the Vehicle is constructed.
-        if (message.msgid == (uint)MAVLink.MAVLINK_MSG_ID.HEARTBEAT)
+        // Only start AUTOPILOT_VERSION negotiation after the first heartbeat
+        // from the autopilot component, so VehicleState.Type is populated
+        // before the Vehicle is constructed.
+        if (
+            message.msgid == (uint)MAVLink.MAVLINK_MSG_ID.HEARTBEAT
+            && message.compid == (byte)MAVLink.MAV_COMPONENT.MAV_COMP_ID_AUTOPILOT1
+            && !_negotiations.ContainsKey(message.sysid)
+        )
         {
+            // GetOrAdd: factory runs exactly once per sysid (atomic).
             _negotiations.GetOrAdd(
                 message.sysid,
                 sysId =>
