@@ -10,8 +10,6 @@ foundation.
 Pre-pre-alpha. Currently a console-only application with ~20% of MAVProxy's
 commands.
 
-See [ROADMAP.md](ROADMAP.md) for milestones and design decisions.
-
 ## Principles
 
 - .NET, not web stack: native performance, low resource footprint (testing on

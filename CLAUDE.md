@@ -1,7 +1,5 @@
 ## Project
 
-See [ROADMAP.md](ROADMAP.md) for milestones and design decisions.
-
 **Solution file:** `Groundwork.slnx` (`.slnx`, not `.sln`).
 
 **Python tooling:** [uv](https://docs.astral.sh/uv/) with `uv.lock`. Use
