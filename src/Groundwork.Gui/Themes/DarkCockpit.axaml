@@ -1,0 +1,49 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!-- Base palette -->
+  <Color x:Key="GwBase">#1a1a1e</Color>
+  <Color x:Key="GwSurface">#252529</Color>
+  <Color x:Key="GwSurfaceRaised">#2e2e33</Color>
+  <Color x:Key="GwBorder">#3a3a40</Color>
+
+  <!-- Accent -->
+  <Color x:Key="GwAccent">#929aab</Color>
+  <Color x:Key="GwAccentDim">#6b7280</Color>
+  <Color x:Key="GwAccentBright">#b0b7c3</Color>
+
+  <!-- Text -->
+  <Color x:Key="GwText">#e0e0e0</Color>
+  <Color x:Key="GwTextDim">#888890</Color>
+  <Color x:Key="GwTextDisabled">#555560</Color>
+
+  <!-- Semantic -->
+  <Color x:Key="GwCaution">#d4a042</Color>
+  <Color x:Key="GwWarning">#cc4444</Color>
+  <Color x:Key="GwOk">#4a9a5a</Color>
+
+  <!-- Brushes -->
+  <SolidColorBrush x:Key="GwBaseBrush" Color="{StaticResource GwBase}" />
+  <SolidColorBrush x:Key="GwSurfaceBrush" Color="{StaticResource GwSurface}" />
+  <SolidColorBrush x:Key="GwSurfaceRaisedBrush" Color="{StaticResource GwSurfaceRaised}" />
+  <SolidColorBrush x:Key="GwBorderBrush" Color="{StaticResource GwBorder}" />
+
+  <SolidColorBrush x:Key="GwAccentBrush" Color="{StaticResource GwAccent}" />
+  <SolidColorBrush x:Key="GwAccentDimBrush" Color="{StaticResource GwAccentDim}" />
+  <SolidColorBrush x:Key="GwAccentBrightBrush" Color="{StaticResource GwAccentBright}" />
+
+  <SolidColorBrush x:Key="GwTextBrush" Color="{StaticResource GwText}" />
+  <SolidColorBrush x:Key="GwTextDimBrush" Color="{StaticResource GwTextDim}" />
+  <SolidColorBrush x:Key="GwTextDisabledBrush" Color="{StaticResource GwTextDisabled}" />
+
+  <SolidColorBrush x:Key="GwCautionBrush" Color="{StaticResource GwCaution}" />
+  <SolidColorBrush x:Key="GwWarningBrush" Color="{StaticResource GwWarning}" />
+  <SolidColorBrush x:Key="GwOkBrush" Color="{StaticResource GwOk}" />
+
+  <!-- Rail interactive states -->
+  <Color x:Key="GwRailHover">#333338</Color>
+  <Color x:Key="GwRailSelected">#3e3e48</Color>
+  <SolidColorBrush x:Key="GwRailHoverBrush" Color="{StaticResource GwRailHover}" />
+  <SolidColorBrush x:Key="GwRailSelectedBrush" Color="{StaticResource GwRailSelected}" />
+
+</ResourceDictionary>
