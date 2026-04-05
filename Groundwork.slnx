@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/Groundwork.Console/Groundwork.Console.csproj" />
     <Project Path="src/Groundwork.Core/Groundwork.Core.csproj" />
+    <Project Path="src/Groundwork.Gui/Groundwork.Gui.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Groundwork.Core.Tests/Groundwork.Core.Tests.csproj" />
