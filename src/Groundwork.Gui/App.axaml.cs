@@ -11,7 +11,9 @@
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Groundwork.Gui.ViewModels;
+using Groundwork.Gui.ViewModels.Widgets;
 using Groundwork.Gui.Views;
+using Groundwork.Gui.Views.Widgets;
 
 namespace Groundwork.Gui;
 
@@ -41,6 +43,9 @@ public partial class App : Avalonia.Application
         locator.Register<PlanViewModel, PlanView>();
         locator.Register<ConfigViewModel, ConfigView>();
         locator.Register<SettingsViewModel, SettingsView>();
+        locator.Register<SplitWidgetViewModel, SplitWidgetView>();
+        locator.Register<TabWidgetViewModel, TabWidgetView>();
+        locator.Register<PlaceholderWidgetViewModel, PlaceholderWidgetView>();
         return locator;
     }
 }

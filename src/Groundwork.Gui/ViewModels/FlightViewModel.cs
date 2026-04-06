@@ -8,6 +8,11 @@
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 
+using Avalonia;
+using Avalonia.Layout;
+using Groundwork.Gui.ViewModels.Widgets;
+using Groundwork.Gui.Widgets;
+
 namespace Groundwork.Gui.ViewModels;
 
 /// <summary>
@@ -20,4 +25,40 @@ public class FlightViewModel : PageViewModelBase
     // Material Symbols: Near Me (filled, weight 400, grade 0, optical size 24)
     public override string IconPathData =>
         "M413-413 137-520q-10-4-14.5-12t-4.5-17q0-9 4.5-16t14.5-11l641-241q9-4 17.5-1.5T810-810q6 6 8.5 14.5T817-778L576-137q-4 10-11 14.5t-16 4.5q-9 0-17-4.5T520-137L413-413Z";
+
+    /// <summary>
+    /// Gets the root widget of the flight view layout.
+    /// </summary>
+    public WidgetViewModelBase RootWidget { get; } =
+        new SplitWidgetViewModel
+        {
+            Orientation = Orientation.Horizontal,
+            Ratio = 0.3,
+            First = new SplitWidgetViewModel
+            {
+                Orientation = Orientation.Vertical,
+                Ratio = 0.4,
+                First = new PlaceholderWidgetViewModel { Label = "PFD" },
+                Second = new TabWidgetViewModel
+                {
+                    Children =
+                    [
+                        new PlaceholderWidgetViewModel { Label = "Quick" },
+                        new PlaceholderWidgetViewModel { Label = "Actions" },
+                        new PlaceholderWidgetViewModel { Label = "Messages" },
+                    ],
+                },
+            },
+            Second = new PlaceholderWidgetViewModel
+            {
+                Label = "Map",
+                Overlays =
+                [
+                    new(
+                        new PlaceholderWidgetViewModel { Label = "Wind" },
+                        new AnchoredPlacement(Anchor.Top | Anchor.Left, 80, 80, new Thickness(0))
+                    ),
+                ],
+            },
+        };
 }

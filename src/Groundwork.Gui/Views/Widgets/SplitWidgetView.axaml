@@ -1,0 +1,17 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Groundwork.Gui.ViewModels.Widgets"
+             x:Class="Groundwork.Gui.Views.Widgets.SplitWidgetView"
+             x:DataType="vm:SplitWidgetViewModel">
+
+    <Grid x:Name="SplitGrid">
+        <Grid.Styles>
+            <Style Selector="GridSplitter">
+                <Setter Property="Background" Value="{StaticResource GwBorderBrush}" />
+            </Style>
+        </Grid.Styles>
+
+        <!-- Content is built in code-behind based on Orientation -->
+    </Grid>
+
+</UserControl>
