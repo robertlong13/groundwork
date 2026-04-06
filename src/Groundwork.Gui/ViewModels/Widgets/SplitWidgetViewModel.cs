@@ -10,6 +10,7 @@
 
 using Avalonia.Layout;
 using CommunityToolkit.Mvvm.ComponentModel;
+using Groundwork.Gui.Widgets;
 
 namespace Groundwork.Gui.ViewModels.Widgets;
 
@@ -19,6 +20,20 @@ namespace Groundwork.Gui.ViewModels.Widgets;
 public partial class SplitWidgetViewModel : WidgetViewModelBase
 {
     public override string TypeId => "groundwork.split";
+
+    public override void OnAttached(IWidgetContext context)
+    {
+        base.OnAttached(context);
+        First?.OnAttached(context);
+        Second?.OnAttached(context);
+    }
+
+    public override void OnDetached()
+    {
+        First?.OnDetached();
+        Second?.OnDetached();
+        base.OnDetached();
+    }
 
     /// <summary>
     /// Gets or sets the first child widget.

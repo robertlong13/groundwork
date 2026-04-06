@@ -50,6 +50,8 @@ public abstract class WidgetViewModelBase : ViewModelBase, IDisposable
     public virtual void OnAttached(IWidgetContext context)
     {
         _context = context;
+        foreach (var overlay in Overlays)
+            overlay.Widget.OnAttached(context);
     }
 
     /// <summary>
@@ -57,6 +59,8 @@ public abstract class WidgetViewModelBase : ViewModelBase, IDisposable
     /// </summary>
     public virtual void OnDetached()
     {
+        foreach (var overlay in Overlays)
+            overlay.Widget.OnDetached();
         _subscriptions.Clear();
         _context = null;
     }

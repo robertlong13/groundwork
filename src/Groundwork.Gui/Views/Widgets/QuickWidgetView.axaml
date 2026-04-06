@@ -1,0 +1,84 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Groundwork.Gui.ViewModels.Widgets"
+             x:Class="Groundwork.Gui.Views.Widgets.QuickWidgetView"
+             x:DataType="vm:QuickWidgetViewModel">
+
+    <Border Background="{StaticResource GwSurfaceBrush}"
+            Padding="8">
+        <StackPanel Spacing="6">
+
+            <!-- Mode + Armed badge -->
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBlock Text="{Binding Mode}"
+                           FontSize="16" FontWeight="SemiBold"
+                           Foreground="{StaticResource GwTextBrush}"
+                           VerticalAlignment="Center" />
+
+                <Border CornerRadius="2"
+                        Padding="6,2"
+                        IsVisible="{Binding Armed}"
+                        VerticalAlignment="Center">
+                    <Border.Background>
+                        <SolidColorBrush Color="{StaticResource GwWarning}"
+                                         Opacity="0.8" />
+                    </Border.Background>
+                    <TextBlock Text="ARMED"
+                               FontSize="11" FontWeight="Bold"
+                               Foreground="{StaticResource GwTextBrush}" />
+                </Border>
+            </StackPanel>
+
+            <Border Height="1"
+                    Background="{StaticResource GwBorderBrush}"
+                    Margin="0,2" />
+
+            <!-- Telemetry grid -->
+            <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto"
+                  Margin="0,2">
+
+                <TextBlock Grid.Row="0" Grid.Column="0"
+                           Text="Alt"
+                           Foreground="{StaticResource GwTextDimBrush}"
+                           Margin="0,0,12,4" />
+                <TextBlock Grid.Row="0" Grid.Column="1"
+                           Text="{Binding Altitude}"
+                           Foreground="{StaticResource GwTextBrush}" />
+
+                <TextBlock Grid.Row="1" Grid.Column="0"
+                           Text="Hdg"
+                           Foreground="{StaticResource GwTextDimBrush}"
+                           Margin="0,0,12,4" />
+                <TextBlock Grid.Row="1" Grid.Column="1"
+                           Text="{Binding Heading}"
+                           Foreground="{StaticResource GwTextBrush}" />
+
+                <TextBlock Grid.Row="2" Grid.Column="0"
+                           Text="Bat"
+                           Foreground="{StaticResource GwTextDimBrush}"
+                           Margin="0,0,12,4" />
+                <TextBlock Grid.Row="2" Grid.Column="1"
+                           Text="{Binding Voltage}"
+                           Foreground="{StaticResource GwTextBrush}" />
+
+                <TextBlock Grid.Row="3" Grid.Column="0"
+                           Text="Cur"
+                           Foreground="{StaticResource GwTextDimBrush}"
+                           Margin="0,0,12,4" />
+                <TextBlock Grid.Row="3" Grid.Column="1"
+                           Text="{Binding Current}"
+                           Foreground="{StaticResource GwTextBrush}" />
+
+                <TextBlock Grid.Row="4" Grid.Column="0"
+                           Text="Rem"
+                           Foreground="{StaticResource GwTextDimBrush}"
+                           Margin="0,0,12,4" />
+                <TextBlock Grid.Row="4" Grid.Column="1"
+                           Text="{Binding BatteryRemaining}"
+                           Foreground="{StaticResource GwTextBrush}" />
+            </Grid>
+
+        </StackPanel>
+    </Border>
+
+</UserControl>

@@ -9,6 +9,8 @@
 // (at your option) any later version.
 
 using CommunityToolkit.Mvvm.ComponentModel;
+using Groundwork.Core.Connections;
+using Groundwork.Gui.Widgets;
 
 namespace Groundwork.Gui.ViewModels;
 
@@ -20,11 +22,17 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private PageViewModelBase _currentPage;
 
-    public PageViewModelBase[] Pages { get; } =
-    [new FlightViewModel(), new PlanViewModel(), new ConfigViewModel(), new SettingsViewModel()];
+    public PageViewModelBase[] Pages { get; }
 
-    public MainWindowViewModel()
+    public MainWindowViewModel(AppConfig config, LinkManager links, IWidgetContext widgetContext)
     {
+        Pages =
+        [
+            new FlightViewModel(widgetContext),
+            new PlanViewModel(),
+            new ConfigViewModel(),
+            new SettingsViewModel(config, links),
+        ];
         _currentPage = Pages[0];
     }
 }
