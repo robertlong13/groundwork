@@ -62,8 +62,9 @@ public class TlogPipelineTests
         Assert.Same(state, vehicle.CanonicalState);
 
         // Vehicle heartbeat fields should be populated from the SITL quadplane.
-        Assert.NotEqual(MAVLink.MAV_TYPE.GCS, state.Type);
-        Assert.Equal(MAVLink.MAV_AUTOPILOT.ARDUPILOTMEGA, state.Autopilot);
+        var hb = state.Heartbeat.Value;
+        Assert.NotEqual(MAVLink.MAV_TYPE.GCS, hb.Type);
+        Assert.Equal(MAVLink.MAV_AUTOPILOT.ARDUPILOTMEGA, hb.Autopilot);
 
         await connection.DisposeAsync();
     }
@@ -91,11 +92,14 @@ public class TlogPipelineTests
             .FirstAsync();
 
         // Find the vehicle state (skip GCS sysids).
-        var state = channel.States.Values.First(s => s.Type != MAVLink.MAV_TYPE.GCS);
+        var state = channel.States.Values.First(s =>
+            s.Heartbeat.Value.Type != MAVLink.MAV_TYPE.GCS
+        );
 
-        Assert.NotEqual(0.0, state.Latitude);
-        Assert.NotEqual(0.0, state.Longitude);
-        Assert.True(state.Altitude != 0f || state.AltitudeMsl != 0f);
+        var pos = state.Position.Value;
+        Assert.NotEqual(0.0, pos.Latitude);
+        Assert.NotEqual(0.0, pos.Longitude);
+        Assert.True(pos.AltitudeRel != 0f || pos.AltitudeMsl != 0f);
 
         await connection.DisposeAsync();
     }

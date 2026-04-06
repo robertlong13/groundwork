@@ -60,13 +60,13 @@ public sealed class VehicleModule
         for (var i = 0; i < vehicles.Count; i++)
         {
             var vehicle = vehicles[i];
-            var state = vehicle.CanonicalState;
-            var modeName = vehicle.ModeToName(state.CustomMode);
+            var hb = vehicle.CanonicalState.Heartbeat.Value;
+            var modeName = vehicle.ModeToName(hb.CustomMode);
             var marker = vehicle == current ? "*" : " ";
-            var armed = state.Armed ? "  Armed" : "";
+            var armed = hb.Armed ? "  Armed" : "";
 
             ctx.Output.WriteLine(
-                $"  {marker} {i}: sysid {vehicle.SysId}  {state.Type}  {modeName}{armed}"
+                $"  {marker} {i}: sysid {vehicle.SysId}  {hb.Type}  {modeName}{armed}"
             );
 
             var channels = ctx.ChannelRegistry.Channels;
