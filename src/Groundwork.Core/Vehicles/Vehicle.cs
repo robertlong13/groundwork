@@ -131,14 +131,15 @@ public class Vehicle
     /// Returns the custom_mode number for a mode name.
     /// </summary>
     /// <returns>The custom_mode number, or <see langword="null"/> if unrecognized.</returns>
-    public uint? NameToMode(string name) => ArduPilot.ModeMap.NameToMode(name, CanonicalState.Type);
+    public uint? NameToMode(string name) =>
+        ArduPilot.ModeMap.NameToMode(name, CanonicalState.Heartbeat.Value.Type);
 
     /// <summary>
     /// Returns the display name for a custom_mode number.
     /// </summary>
     /// <returns>The mode display name, or "Mode(N)" for unrecognized modes.</returns>
     public string ModeToName(uint customMode) =>
-        ArduPilot.ModeMap.ModeToName(customMode, CanonicalState.Type);
+        ArduPilot.ModeMap.ModeToName(customMode, CanonicalState.Heartbeat.Value.Type);
 
     /// <summary>
     /// Gets the parameter cache, populated by fetch, set, and download operations.
@@ -172,7 +173,7 @@ public class Vehicle
     /// Gets the available modes for this vehicle type, keyed by custom_mode number.
     /// </summary>
     public IReadOnlyDictionary<uint, string> AvailableModes =>
-        ArduPilot.ModeMap.GetModes(CanonicalState.Type);
+        ArduPilot.ModeMap.GetModes(CanonicalState.Heartbeat.Value.Type);
 
     /// <summary>
     /// Gets the cached mission items, populated by download operations.
@@ -777,13 +778,13 @@ public class Vehicle
     {
         try
         {
-            var state = CanonicalState;
+            var hb = CanonicalState.Heartbeat.Value;
 
-            var family = ArduPilot.FirmwareFamilyMap.FromMavType(state.Type);
+            var family = ArduPilot.FirmwareFamilyMap.FromMavType(hb.Type);
             if (family is null)
                 return;
 
-            var version = state.FirmwareVersion;
+            var version = CanonicalState.FirmwareVersion;
             if (version == 0)
                 return;
 

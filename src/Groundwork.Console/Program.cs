@@ -124,7 +124,9 @@ foreach (var descriptor in linkDescriptors)
 }
 
 var discoverySub = registry.Discovered.Subscribe(v =>
-    Console.WriteLine($"Vehicle discovered: sysid {v.SysId} ({v.CanonicalState.Type})")
+    Console.WriteLine(
+        $"Vehicle discovered: sysid {v.SysId} ({v.CanonicalState.Heartbeat.Value.Type})"
+    )
 );
 
 // -- REPL setup --

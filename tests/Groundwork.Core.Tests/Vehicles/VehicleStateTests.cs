@@ -29,10 +29,11 @@ public class VehicleStateTests
 
         state.UpdateFromHeartbeat(heartbeat);
 
-        Assert.Equal(MAVLink.MAV_TYPE.QUADROTOR, state.Type);
-        Assert.Equal(MAVLink.MAV_AUTOPILOT.ARDUPILOTMEGA, state.Autopilot);
-        Assert.Equal(5u, state.CustomMode);
-        Assert.Equal(MAVLink.MAV_STATE.ACTIVE, state.SystemStatus);
+        var hb = state.Heartbeat.Value;
+        Assert.Equal(MAVLink.MAV_TYPE.QUADROTOR, hb.Type);
+        Assert.Equal(MAVLink.MAV_AUTOPILOT.ARDUPILOTMEGA, hb.Autopilot);
+        Assert.Equal(5u, hb.CustomMode);
+        Assert.Equal(MAVLink.MAV_STATE.ACTIVE, hb.SystemStatus);
     }
 
     [Fact]
@@ -48,7 +49,7 @@ public class VehicleStateTests
 
         state.UpdateFromHeartbeat(heartbeat);
 
-        Assert.True(state.Armed);
+        Assert.True(state.Heartbeat.Value.Armed);
     }
 
     [Fact]
@@ -56,15 +57,24 @@ public class VehicleStateTests
     {
         var state = new VehicleState();
         // Pre-set armed to verify it flips back.
-        state.Armed = true;
-        var heartbeat = new MAVLink.mavlink_heartbeat_t
-        {
-            base_mode = (byte)MAVLink.MAV_MODE_FLAG.CUSTOM_MODE_ENABLED,
-        };
+        state.UpdateFromHeartbeat(
+            new MAVLink.mavlink_heartbeat_t
+            {
+                base_mode = (byte)(
+                    MAVLink.MAV_MODE_FLAG.CUSTOM_MODE_ENABLED | MAVLink.MAV_MODE_FLAG.SAFETY_ARMED
+                ),
+            }
+        );
+        Assert.True(state.Heartbeat.Value.Armed);
 
-        state.UpdateFromHeartbeat(heartbeat);
+        state.UpdateFromHeartbeat(
+            new MAVLink.mavlink_heartbeat_t
+            {
+                base_mode = (byte)MAVLink.MAV_MODE_FLAG.CUSTOM_MODE_ENABLED,
+            }
+        );
 
-        Assert.False(state.Armed);
+        Assert.False(state.Heartbeat.Value.Armed);
     }
 
     [Fact]
@@ -82,25 +92,25 @@ public class VehicleStateTests
 
         state.UpdateFromGlobalPositionInt(msg);
 
-        Assert.Equal(-35.363262, state.Latitude, 6);
-        Assert.Equal(149.165237, state.Longitude, 6);
-        Assert.Equal(50f, state.Altitude, 2);
-        Assert.Equal(630f, state.AltitudeMsl, 2);
-        Assert.Equal(180.45f, state.Heading, 2);
+        var pos = state.Position.Value;
+        Assert.Equal(-35.363262, pos.Latitude, 6);
+        Assert.Equal(149.165237, pos.Longitude, 6);
+        Assert.Equal(50f, pos.AltitudeRel, 2);
+        Assert.Equal(630f, pos.AltitudeMsl, 2);
+        Assert.Equal(180.45f, pos.Heading, 2);
     }
 
     [Fact]
-    public void UpdateFromGlobalPositionInt_HeadingUnknown()
+    public void UpdateFromGlobalPositionInt_HeadingSentinel_PassesThrough()
     {
+        // MAVLink's 65535 "unknown" sentinel is not specially handled;
+        // it converts to 655.35 like any other raw cdeg value.
         var state = new VehicleState();
-        var msg = new MAVLink.mavlink_global_position_int_t
-        {
-            hdg = ushort.MaxValue, // 65535 = unknown
-        };
+        var msg = new MAVLink.mavlink_global_position_int_t { hdg = ushort.MaxValue };
 
         state.UpdateFromGlobalPositionInt(msg);
 
-        Assert.True(state.Heading >= 360f);
+        Assert.Equal(655.35f, state.Position.Value.Heading, 2);
     }
 
     [Fact]
@@ -116,9 +126,10 @@ public class VehicleStateTests
 
         state.UpdateFromSysStatus(msg);
 
-        Assert.Equal(12.6f, state.BatteryVoltage, 2);
-        Assert.Equal(15.5f, state.BatteryCurrent, 2);
-        Assert.Equal(75, state.BatteryRemaining);
+        var bat = state.Battery.Value;
+        Assert.Equal(12.6f, bat.Voltage, 2);
+        Assert.Equal(15.5f, bat.Current, 2);
+        Assert.Equal(75, bat.Remaining);
     }
 
     [Fact]
@@ -129,6 +140,6 @@ public class VehicleStateTests
 
         state.UpdateFromSysStatus(msg);
 
-        Assert.Equal(-1, state.BatteryRemaining);
+        Assert.Equal(-1, state.Battery.Value.Remaining);
     }
 }

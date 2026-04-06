@@ -37,19 +37,18 @@ public sealed class OverviewModule
         }
 
         var state = vehicle.CanonicalState;
-        var modeName = vehicle.ModeToName(state.CustomMode);
+        var hb = state.Heartbeat.Value;
+        var pos = state.Position.Value;
+        var bat = state.Battery.Value;
+        var modeName = vehicle.ModeToName(hb.CustomMode);
 
-        ctx.Output.WriteLine($"Type:     {state.Type}");
+        ctx.Output.WriteLine($"Type:     {hb.Type}");
         ctx.Output.WriteLine($"Mode:     {modeName}");
-        ctx.Output.WriteLine($"Armed:    {(state.Armed ? "YES" : "NO")}");
-        ctx.Output.WriteLine($"Position: {state.Latitude:F6}, {state.Longitude:F6}");
-        ctx.Output.WriteLine($"Alt:      {state.Altitude:F1} m AGL / {state.AltitudeMsl:F1} m MSL");
-        ctx.Output.WriteLine($"Heading:  {state.Heading:F0} deg");
-        ctx.Output.WriteLine(
-            $"Battery:  {state.BatteryVoltage:F1} V  "
-                + $"{state.BatteryCurrent:F1} A  "
-                + $"{state.BatteryRemaining}%"
-        );
+        ctx.Output.WriteLine($"Armed:    {(hb.Armed ? "YES" : "NO")}");
+        ctx.Output.WriteLine($"Position: {pos.Latitude:F6}, {pos.Longitude:F6}");
+        ctx.Output.WriteLine($"Alt:      {pos.AltitudeRel:F1} m AGL / {pos.AltitudeMsl:F1} m MSL");
+        ctx.Output.WriteLine($"Heading:  {pos.Heading:F0} deg");
+        ctx.Output.WriteLine($"Battery:  {bat.Voltage:F1} V  {bat.Current:F1} A  {bat.Remaining}%");
 
         return Task.CompletedTask;
     }
