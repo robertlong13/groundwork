@@ -1,12 +1,10 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Groundwork.Gui.ViewModels"
+             xmlns:widgets="using:Groundwork.Gui.Views.Widgets"
              x:Class="Groundwork.Gui.Views.FlightView"
              x:DataType="vm:FlightViewModel">
 
-    <TextBlock Text="Fly"
-               Foreground="{StaticResource GwTextDimBrush}"
-               HorizontalAlignment="Center"
-               VerticalAlignment="Center" />
+    <widgets:WidgetHost DataContext="{Binding RootWidget}" />
 
 </UserControl>

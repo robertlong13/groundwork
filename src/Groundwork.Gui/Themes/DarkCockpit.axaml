@@ -40,6 +40,16 @@
   <SolidColorBrush x:Key="GwWarningBrush" Color="{StaticResource GwWarning}" />
   <SolidColorBrush x:Key="GwOkBrush" Color="{StaticResource GwOk}" />
 
+  <!-- Override Fluent system accent with our accent -->
+  <Color x:Key="SystemAccentColor">#929aab</Color>
+  <Color x:Key="SystemAccentColorDark1">#929aab</Color>
+  <Color x:Key="SystemAccentColorDark2">#6b7280</Color>
+  <Color x:Key="SystemAccentColorDark3">#555560</Color>
+  <Color x:Key="SystemAccentColorLight1">#b0b7c3</Color>
+  <Color x:Key="SystemAccentColorLight2">#c8cdd5</Color>
+  <Color x:Key="SystemAccentColorLight3">#e0e0e0</Color>
+  <SolidColorBrush x:Key="SystemAccentColorBrush" Color="{StaticResource SystemAccentColor}" />
+
   <!-- Rail interactive states -->
   <Color x:Key="GwRailHover">#333338</Color>
   <Color x:Key="GwRailSelected">#3e3e48</Color>

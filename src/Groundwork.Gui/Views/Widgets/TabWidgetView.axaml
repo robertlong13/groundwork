@@ -1,0 +1,38 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Groundwork.Gui.ViewModels.Widgets"
+             xmlns:local="using:Groundwork.Gui.Views.Widgets"
+             x:Class="Groundwork.Gui.Views.Widgets.TabWidgetView"
+             x:DataType="vm:TabWidgetViewModel">
+
+    <TabControl ItemsSource="{Binding Children}"
+                SelectedItem="{Binding SelectedChild}"
+                Padding="0">
+
+        <TabControl.Styles>
+            <Style Selector="TabItem">
+                <Setter Property="Foreground" Value="{StaticResource GwTextDimBrush}" />
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="Padding" Value="8,4" />
+                <Setter Property="MinHeight" Value="40" />
+            </Style>
+            <Style Selector="TabItem:selected">
+                <Setter Property="Foreground" Value="{StaticResource GwTextBrush}" />
+            </Style>
+        </TabControl.Styles>
+
+        <TabControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:WidgetViewModelBase">
+                <TextBlock Text="{Binding DisplayName}" />
+            </DataTemplate>
+        </TabControl.ItemTemplate>
+
+        <TabControl.ContentTemplate>
+            <DataTemplate x:DataType="vm:WidgetViewModelBase">
+                <local:WidgetHost DataContext="{Binding}" />
+            </DataTemplate>
+        </TabControl.ContentTemplate>
+
+    </TabControl>
+
+</UserControl>
