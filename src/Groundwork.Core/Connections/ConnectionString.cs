@@ -10,10 +10,9 @@
 
 using System.Globalization;
 using System.Net;
-using Groundwork.Core.Connections;
 using Microsoft.Extensions.Logging;
 
-namespace Groundwork.Console;
+namespace Groundwork.Core.Connections;
 
 /// <summary>
 /// Provides parsing of MAVProxy-style connection descriptors into <see cref="IConnection"/> instances.
