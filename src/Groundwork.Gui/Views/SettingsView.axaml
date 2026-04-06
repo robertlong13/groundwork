@@ -2,11 +2,84 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Groundwork.Gui.ViewModels"
              x:Class="Groundwork.Gui.Views.SettingsView"
-             x:DataType="vm:SettingsViewModel">
+             x:DataType="vm:SettingsViewModel"
+             x:Name="Root">
 
-    <TextBlock Text="Settings"
-               Foreground="{StaticResource GwTextDimBrush}"
-               HorizontalAlignment="Center"
-               VerticalAlignment="Center" />
+    <ScrollViewer Padding="24">
+        <StackPanel Spacing="24" MaxWidth="600">
+
+            <!-- Links section -->
+            <TextBlock Text="Links"
+                       FontSize="18" FontWeight="SemiBold"
+                       Foreground="{StaticResource GwTextBrush}" />
+
+            <TextBlock Text="Configure MAVLink connections. Links connect automatically on startup."
+                       Foreground="{StaticResource GwTextDimBrush}"
+                       TextWrapping="Wrap" />
+
+            <!-- Link list -->
+            <ItemsControl ItemsSource="{Binding Links}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:LinkEntry">
+                        <Border Background="{StaticResource GwSurfaceRaisedBrush}"
+                                CornerRadius="4"
+                                Padding="12,8"
+                                Margin="0,0,0,4">
+                            <Grid ColumnDefinitions="Auto,*,Auto">
+
+                                <!-- Connected indicator -->
+                                <Ellipse Grid.Column="0"
+                                         Width="8" Height="8"
+                                         VerticalAlignment="Center"
+                                         Margin="0,0,10,0"
+                                         Fill="{StaticResource GwOkBrush}"
+                                         IsVisible="{Binding Connected}" />
+                                <Ellipse Grid.Column="0"
+                                         Width="8" Height="8"
+                                         VerticalAlignment="Center"
+                                         Margin="0,0,10,0"
+                                         Fill="{StaticResource GwTextDisabledBrush}"
+                                         IsVisible="{Binding !Connected}" />
+
+                                <!-- Descriptor -->
+                                <TextBlock Grid.Column="1"
+                                           Text="{Binding Descriptor}"
+                                           Foreground="{StaticResource GwTextBrush}"
+                                           VerticalAlignment="Center" />
+
+                                <!-- Remove button -->
+                                <Button Grid.Column="2"
+                                        Content="Remove"
+                                        FontSize="12"
+                                        Padding="8,4"
+                                        Command="{Binding #Root.((vm:SettingsViewModel)DataContext).RemoveLinkCommand}"
+                                        CommandParameter="{Binding}" />
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <!-- Add link bar -->
+            <Grid ColumnDefinitions="*,Auto" Margin="0,4,0,0">
+                <TextBox Grid.Column="0"
+                         Text="{Binding NewLinkDescriptor}"
+                         Watermark="e.g. udpin:14550"
+                         Margin="0,0,8,0" />
+
+                <Button Grid.Column="1"
+                        Content="Add"
+                        Command="{Binding AddLinkCommand}"
+                        Padding="16,8" />
+            </Grid>
+
+            <!-- Error message -->
+            <TextBlock Text="{Binding LinkError}"
+                       Foreground="{StaticResource GwWarningBrush}"
+                       IsVisible="{Binding LinkError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                       TextWrapping="Wrap" />
+
+        </StackPanel>
+    </ScrollViewer>
 
 </UserControl>

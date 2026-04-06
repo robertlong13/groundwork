@@ -29,8 +29,11 @@ public class FlightViewModel : PageViewModelBase
     /// <summary>
     /// Gets the root widget of the flight view layout.
     /// </summary>
-    public WidgetViewModelBase RootWidget { get; } =
-        new SplitWidgetViewModel
+    public WidgetViewModelBase RootWidget { get; }
+
+    public FlightViewModel(IWidgetContext widgetContext)
+    {
+        RootWidget = new SplitWidgetViewModel
         {
             Orientation = Orientation.Horizontal,
             Ratio = 0.3,
@@ -43,7 +46,7 @@ public class FlightViewModel : PageViewModelBase
                 {
                     Children =
                     [
-                        new PlaceholderWidgetViewModel { Label = "Quick" },
+                        new QuickWidgetViewModel(),
                         new PlaceholderWidgetViewModel { Label = "Actions" },
                         new PlaceholderWidgetViewModel { Label = "Messages" },
                     ],
@@ -61,4 +64,7 @@ public class FlightViewModel : PageViewModelBase
                 ],
             },
         };
+
+        RootWidget.OnAttached(widgetContext);
+    }
 }

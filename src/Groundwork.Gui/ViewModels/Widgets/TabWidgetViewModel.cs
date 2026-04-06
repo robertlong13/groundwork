@@ -10,6 +10,7 @@
 
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
+using Groundwork.Gui.Widgets;
 
 namespace Groundwork.Gui.ViewModels.Widgets;
 
@@ -19,6 +20,20 @@ namespace Groundwork.Gui.ViewModels.Widgets;
 public partial class TabWidgetViewModel : WidgetViewModelBase
 {
     public override string TypeId => "groundwork.tab";
+
+    public override void OnAttached(IWidgetContext context)
+    {
+        base.OnAttached(context);
+        foreach (var child in Children)
+            child.OnAttached(context);
+    }
+
+    public override void OnDetached()
+    {
+        foreach (var child in Children)
+            child.OnDetached();
+        base.OnDetached();
+    }
 
     /// <summary>
     /// Gets the child widgets displayed as tabs.
