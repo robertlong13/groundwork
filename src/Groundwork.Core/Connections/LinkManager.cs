@@ -9,11 +9,10 @@
 // (at your option) any later version.
 
 using Groundwork.Core.Channels;
-using Groundwork.Core.Connections;
 using Groundwork.Core.Vehicles;
 using Microsoft.Extensions.Logging;
 
-namespace Groundwork.Console;
+namespace Groundwork.Core.Connections;
 
 /// <summary>
 /// Provides lifecycle management for connection and channel pairs.
@@ -90,6 +89,31 @@ public sealed class LinkManager : IAsyncDisposable
 
         var (connection, channel) = _links[index];
         _links.RemoveAt(index);
+        await TearDownAsync(connection, channel).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Removes and disposes the link that owns the given channel.
+    /// </summary>
+    /// <returns><see langword="true"/> if the channel was found and removed.</returns>
+    public async Task<bool> RemoveAsync(MavChannel channel)
+    {
+        for (var i = 0; i < _links.Count; i++)
+        {
+            if (_links[i].Channel == channel)
+            {
+                var connection = _links[i].Connection;
+                _links.RemoveAt(i);
+                await TearDownAsync(connection, channel).ConfigureAwait(false);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private async Task TearDownAsync(IConnection connection, MavChannel channel)
+    {
         _channelRegistry.Remove(channel);
         _tlogWriter?.RemoveChannel(channel);
 

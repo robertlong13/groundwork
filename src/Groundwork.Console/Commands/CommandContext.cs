@@ -9,6 +9,7 @@
 // (at your option) any later version.
 
 using Groundwork.Core.Channels;
+using Groundwork.Core.Connections;
 using Groundwork.Core.Vehicles;
 using Microsoft.Extensions.Logging;
 

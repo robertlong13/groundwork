@@ -10,6 +10,7 @@
 
 using Groundwork.Console;
 using Groundwork.Console.Commands;
+using Groundwork.Core.Connections;
 using Groundwork.Core.Vehicles;
 using Microsoft.Extensions.Logging;
 using ArduPilot = Groundwork.Core.ArduPilot;
