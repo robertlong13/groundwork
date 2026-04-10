@@ -52,9 +52,8 @@ public class FlightViewModel : PageViewModelBase
                     ],
                 },
             },
-            Second = new PlaceholderWidgetViewModel
+            Second = new MapWidgetViewModel
             {
-                Label = "Map",
                 Overlays =
                 [
                     new(

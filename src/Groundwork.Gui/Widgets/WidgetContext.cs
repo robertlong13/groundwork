@@ -20,11 +20,18 @@ namespace Groundwork.Gui.Widgets;
 /// </summary>
 public sealed class WidgetContext : IWidgetContext
 {
-    public WidgetContext(IStreamRegistry streams, TimeSpan? defaultSampleInterval = null)
+    public WidgetContext(
+        AppConfig config,
+        IStreamRegistry streams,
+        TimeSpan? defaultSampleInterval = null
+    )
     {
+        Config = config;
         Streams = streams;
         DefaultSampleInterval = defaultSampleInterval ?? TimeSpan.FromMilliseconds(33); // ~30fps
     }
+
+    public AppConfig Config { get; }
 
     public IStreamRegistry Streams { get; }
 

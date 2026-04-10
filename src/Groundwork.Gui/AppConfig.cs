@@ -36,6 +36,18 @@ public sealed class AppConfig
     /// </summary>
     public List<string> Links { get; set; } = [];
 
+    /// <summary>
+    /// Gets or sets a user-provided MapTiler API key, overriding the built-in default.
+    /// </summary>
+    public string? MapTilerApiKey { get; set; }
+
+    /// <summary>
+    /// Gets the effective MapTiler API key (user override, then build-time default).
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string EffectiveMapTilerKey =>
+        !string.IsNullOrEmpty(MapTilerApiKey) ? MapTilerApiKey : BuildSecrets.MapTilerKey;
+
     public static AppConfig Load()
     {
         if (!File.Exists(ConfigPath))

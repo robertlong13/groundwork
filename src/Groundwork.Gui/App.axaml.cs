@@ -20,6 +20,8 @@ using Groundwork.Gui.ViewModels.Widgets;
 using Groundwork.Gui.Views;
 using Groundwork.Gui.Views.Widgets;
 using Groundwork.Gui.Widgets;
+using MapControl;
+using MapControl.Caching;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -28,6 +30,7 @@ namespace Groundwork.Gui;
 public partial class App : Avalonia.Application
 {
     private LinkManager? _links;
+    private ImageFileCache? _tileCache;
 
     public override void Initialize()
     {
@@ -37,6 +40,12 @@ public partial class App : Avalonia.Application
     public override void OnFrameworkInitializationCompleted()
     {
         DataTemplates.Add(BuildViewLocator());
+
+        ImageLoader.HttpClient.DefaultRequestHeaders.Add("User-Agent", "Groundwork GCS");
+        _tileCache = new ImageFileCache(TileImageLoader.DefaultCacheFolder);
+        TileImageLoader.Cache = _tileCache;
+        TileImageLoader.DefaultCacheExpiration = TimeSpan.FromDays(90);
+        TileImageLoader.MaxCacheExpiration = TimeSpan.FromDays(90);
 
         var config = AppConfig.Load();
         ILoggerFactory loggerFactory = NullLoggerFactory.Instance;
@@ -57,7 +66,7 @@ public partial class App : Avalonia.Application
         var streams = new StreamRegistry();
         _links = new LinkManager(channelRegistry, vehicleRegistry, loggerFactory);
 
-        var widgetContext = new WidgetContext(streams);
+        var widgetContext = new WidgetContext(config, streams);
 
         // Default streams from the selected vehicle. Bare names
         // (no prefix) since 99% of widgets use these. Registered
@@ -94,6 +103,7 @@ public partial class App : Avalonia.Application
             desktop.MainWindow = new MainWindow { DataContext = vm };
             desktop.ShutdownRequested += async (_, _) =>
             {
+                _tileCache?.Dispose();
                 if (_links is not null)
                     await _links.DisposeAsync();
             };
@@ -115,6 +125,7 @@ public partial class App : Avalonia.Application
         locator.Register<SplitWidgetViewModel, SplitWidgetView>();
         locator.Register<TabWidgetViewModel, TabWidgetView>();
         locator.Register<QuickWidgetViewModel, QuickWidgetView>();
+        locator.Register<MapWidgetViewModel, MapWidgetView>();
         locator.Register<PlaceholderWidgetViewModel, PlaceholderWidgetView>();
         return locator;
     }
