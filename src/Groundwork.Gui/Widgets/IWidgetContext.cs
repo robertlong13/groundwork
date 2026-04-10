@@ -19,6 +19,11 @@ namespace Groundwork.Gui.Widgets;
 public interface IWidgetContext
 {
     /// <summary>
+    /// Gets the application configuration.
+    /// </summary>
+    AppConfig Config { get; }
+
+    /// <summary>
     /// Gets the stream registry for subscribing to named data streams.
     /// </summary>
     IStreamRegistry Streams { get; }

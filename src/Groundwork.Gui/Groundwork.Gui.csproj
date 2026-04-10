@@ -24,5 +24,25 @@
     </PackageReference>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="System.Reactive" Version="6.1.0" />
+    <PackageReference Include="XAML.MapControl.Avalonia" Version="17.0.0" />
   </ItemGroup>
+  <Target Name="GenerateBuildSecrets" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <_MapTilerKey>$(MAPTILER_KEY)</_MapTilerKey>
+      <_SecretsFile>$(IntermediateOutputPath)BuildSecrets.g.cs</_SecretsFile>
+    </PropertyGroup>
+    <WriteLinesToFile
+      File="$(_SecretsFile)"
+      Overwrite="true"
+      WriteOnlyWhenDifferent="true"
+      Lines="namespace Groundwork.Gui%3B;internal static class BuildSecrets;{;    internal const string MapTilerKey = &quot;$(_MapTilerKey)&quot;%3B;}"
+      Condition="'$(DesignTimeBuild)' != 'true'"
+    />
+    <ItemGroup>
+      <Compile
+        Include="$(_SecretsFile)"
+        Condition="!@(Compile->AnyHaveMetadataValue('Identity', '$(_SecretsFile)'))"
+      />
+    </ItemGroup>
+  </Target>
 </Project>

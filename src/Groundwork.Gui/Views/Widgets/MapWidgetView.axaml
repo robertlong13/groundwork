@@ -1,0 +1,33 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:map="clr-namespace:MapControl;assembly=MapControl.Avalonia"
+             xmlns:vm="using:Groundwork.Gui.ViewModels.Widgets"
+             x:Class="Groundwork.Gui.Views.Widgets.MapWidgetView"
+             x:DataType="vm:MapWidgetViewModel">
+
+    <map:Map x:Name="map"
+             Center="{Binding CameraCenter, Mode=TwoWay}"
+             ZoomLevel="{Binding CameraZoom, Mode=TwoWay}"
+             MinZoomLevel="2" MaxZoomLevel="19"
+             ManipulationMode="All">
+
+        <map:MapTileLayer
+            TileSource="{Binding TileUrl}"
+            SourceName="{Binding TileUrlName}"
+            ZoomLevelOffset="-0.5" />
+
+        <!-- Vehicle position marker -->
+        <Canvas map:MapPanel.Location="{Binding VehicleLocation}"
+                IsVisible="{Binding VehicleLocation, Converter={x:Static ObjectConverters.IsNotNull}}"
+                Width="0" Height="0" ClipToBounds="False">
+            <Path Data="M 0,-11 L 7,11 L 0,5 L -7,11 Z"
+                  Fill="White"
+                  Stroke="Black" StrokeThickness="1.5">
+                <Path.RenderTransform>
+                    <RotateTransform Angle="{Binding VehicleHeading}" />
+                </Path.RenderTransform>
+            </Path>
+        </Canvas>
+    </map:Map>
+
+</UserControl>
