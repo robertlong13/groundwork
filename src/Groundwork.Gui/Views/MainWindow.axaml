@@ -10,49 +10,16 @@
         Icon="/Assets/groundwork.ico"
         Background="{StaticResource GwBaseBrush}"
         ExtendClientAreaToDecorationsHint="True"
-        ExtendClientAreaChromeHints="PreferSystemChrome"
+        WindowDecorations="Full"
         ExtendClientAreaTitleBarHeightHint="32"
         Width="1280" Height="720">
 
-    <Window.Styles>
-        <!-- Tame caption button hover for dark theme -->
-        <Style Selector="CaptionButtons Button:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background" Value="{StaticResource GwRailHoverBrush}" />
-        </Style>
-        <Style Selector="CaptionButtons Button:pressed /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background" Value="{StaticResource GwRailSelectedBrush}" />
-        </Style>
-        <!-- Close button: red hover/press -->
-        <Style Selector="CaptionButtons Button#PART_CloseButton:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background" Value="#e81123" />
-        </Style>
-        <Style Selector="CaptionButtons Button#PART_CloseButton:pressed /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background" Value="#94141f" />
-        </Style>
-    </Window.Styles>
-
     <DockPanel>
 
-        <!-- Status bar (merged with title bar) -->
+        <!-- Title bar spacer (content extends into system title bar) -->
         <Border DockPanel.Dock="Top"
-                Background="{StaticResource GwSurfaceBrush}"
-                BorderBrush="{StaticResource GwBorderBrush}"
-                BorderThickness="0,0,0,1"
                 Height="32"
-                IsHitTestVisible="False">
-            <Panel VerticalAlignment="Center"
-                   HorizontalAlignment="Left"
-                   Margin="12,0"
-                   Width="18" Height="18">
-                <!-- Logo: circle background + crosshair/G foreground -->
-                <PathIcon Width="18" Height="18"
-                          Foreground="#261d3a"
-                          Data="M878-482A398 398 0 0 1 480-84 398 398 0 0 1 82-482 398 398 0 0 1 480-880 398 398 0 0 1 878-482Z" />
-                <PathIcon Width="18" Height="18"
-                          Foreground="#9678d3"
-                          Data="m 486.28689,-309.73221 q -47.18384,0 -82.96306,-21.46753 -35.5556,-21.46753 -55.68141,-60.15381 -19.90219,-38.68628 -19.90219,-90.11891 0,-53.22159 20.57305,-91.90787 20.57305,-38.68628 56.35227,-59.48295 35.77922,-20.79667 80.50324,-20.79667 28.62338,0 53.89245,8.49757 25.26907,8.27394 44.72402,23.92735 19.67857,15.42979 32.2013,36.89732 12.52272,21.46753 15.65341,47.63108 h -69.76948 q -2.90706,-12.74634 -9.16842,-23.03287 -6.26137,-10.51014 -16.10065,-17.88961 -9.61567,-7.37946 -22.13839,-11.181 -12.29911,-4.02517 -27.28166,-4.02517 -27.95251,0 -48.30194,13.64083 -20.12581,13.41721 -31.0832,38.46266 -10.73377,24.82183 -10.73377,59.25933 0,34.21388 10.95739,59.03571 10.95739,24.82184 31.30682,38.46266 20.34943,13.41721 48.74918,13.41721 23.25649,0 40.92248,-8.72118 17.66599,-8.94481 27.50528,-24.82184 10.0629,-16.10065 10.0629,-37.12094 l 16.32427,1.34172 h -89.00081 v -52.3271 h 139.9862 v 42.48782 q 0,41.36972 -19.00771,72.90016 -18.78409,31.53043 -52.10349,49.42004 -33.3194,17.66599 -76.47808,17.66599 z M447-61v-72.46C361.66667-141.92 289.86-175.12667 231.58-233.08 173.29333-291.02667 139.92-362.66667 131.46-448H59v-66h72.46c8.46-85.33333 41.83333-157.30667 100.12-215.92 58.28-58.62 130.08667-92.16 215.42-100.62V-903h66v72.46c85.33333 8.46 157.14 42 215.42 100.62 58.28667 58.61333 91.66 130.58667 100.12 215.92H901v66h-72.46c-8.46 85.33333-41.83333 156.97333-100.12 214.92-58.28 57.95333-130.08667 91.16-215.42 99.62V-61Zm235-220c54.66667-54.66667 82-121.66667 82-201 0-79.33333-27.33333-146.33333-82-201-54.66667-54.66667-121.66667-82-201-82-79.33333 0-146.33333 27.33333-201 82-54.66667 54.66667-82 121.66667-82 201 0 79.33333 27.33333 146.33333 82 201 54.66667 54.66667 121.66667 82 201 82 79.33333 0 146.33333-27.33333 201-82z" />
-            </Panel>
-        </Border>
+                IsHitTestVisible="False" />
 
         <!-- Icon rail (left) -->
         <Border DockPanel.Dock="Left"
